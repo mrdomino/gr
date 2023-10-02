@@ -113,17 +113,33 @@ bool is_binary(std::fstream& fs) {
   return false;
 }
 
+struct MatchResult {
+  fs::path path;
+  std::vector<std::pair<size_t, std::string>> lines;
+};
+
 class Cr {
  public:
   Cr(std::unique_ptr<re2::RE2> expr, FullPaths&& fp):
       expr(std::move(expr)), paths(std::move(fp.value)) {}
 
-  int operator()() const {
-    bool foundAny = false;
+  int operator()() {
     for (auto& p: paths) {
-      foundAny |= do_path(p);
+      do_path(p);
     }
-    return foundAny ? EXIT_SUCCESS : EXIT_FAILURE;
+    int ret = results.empty() ? EXIT_FAILURE : EXIT_SUCCESS;
+    while (results.size()) {
+      auto result = std::move(results.front());
+      results.pop();
+      std::cout << std::format("{}:\n", pretty_path(result.path));
+      for (auto& [line, text]: result.lines) {
+        std::cout << std::format("{:3}: {}\n", line, text);
+      }
+      if (results.size()) {
+        std::cout << std::endl;
+      }
+    }
+    return ret;
   }
 
  private:
@@ -140,32 +156,34 @@ class Cr {
     return p.string();
   }
 
-  bool do_path(fs::path const& p) const {
-    bool matched = false;
+  void do_path(fs::path const& p) {
+    std::optional<MatchResult> res;
     std::string text;
     size_t line = 0;
     auto fs = std::fstream(p, std::ios_base::in);
     if (is_binary(fs)) {
-      return false;
+      return;
     }
     while (std::getline(fs, text)) {
       ++line;
       if (re2::RE2::PartialMatch(text, *expr)) {
-        if (!matched) {
-          matched = true;
-          std::cout << std::format("{}:\n", pretty_path(p));
+        if (!res) {
+          res.emplace(p);
         }
-        std::cout << std::format("{0:3}: {1}\n", line, text);
+        res->lines.emplace_back(line, std::move(text));
       }
+    }
+    if (res) {
+      results.emplace(std::move(*res));
     }
     if (fs.bad()) {
       throw std::runtime_error{std::format("IO error on {}", p.string())};
     }
-    return matched;
   }
 
-  std::unique_ptr<re2::RE2> expr;
-  std::vector<fs::path> paths;
+  const std::unique_ptr<re2::RE2> expr;
+  const std::vector<fs::path> paths;
+  std::queue<MatchResult> results;
 };
 
 int main(int const argc, char const* const argv[]) {
