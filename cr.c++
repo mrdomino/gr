@@ -40,7 +40,7 @@ Args parse_args(int const argc, char const* const argv[]) {
 
 [[noreturn]] void usage(Args&& args) {
   std::cerr << std::format("{0}: {1}\nusage: {0} <pattern> [filename...]\n",
-                           args.argv0, args.params.error());
+                           args.argv0, args.params.error().reason);
   exit(2);
 }
 
