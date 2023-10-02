@@ -41,18 +41,15 @@ struct FullPaths {
     if (g_ignored.contains(fs::path(path).filename())) {
       return;
     }
-    auto s = ss_.value_or(fs::symlink_status(path));
+    auto s = ss_.value_or(fs::status(path));
     if (fs::is_regular_file(s)) {
       value.emplace_back(FWD(path));
     }
     else if (fs::is_directory(s)) {
       for (auto it{fs::directory_iterator(FWD(path))};
            it != fs::directory_iterator(); ++it) {
-        addPath(*it, it->symlink_status());
+        addPath(*it, it->status());
       }
-    }
-    else if (fs::is_symlink(s)) {
-      addPath(fs::read_symlink(FWD(path)));
     }
     else {
       std::cerr << "Skipping " << FWD(path) << '\n';
@@ -131,10 +128,16 @@ class Cr {
 
  private:
   std::string pretty_path(fs::path const& p) const {
-    if (p.is_relative()) {
-      return canonical(p).lexically_relative(fs::current_path()).string();
+    if (*std::begin(p) == ".") {
+      // XX surprisingly painful.... we don't want relative() since it
+      // canonicalizes symlinks
+      fs::path q;
+      for (auto it = ++std::begin(p); it != std::end(p); ++it) {
+        q += *it;
+      }
+      return q.string();
     }
-    return canonical(p);
+    return p.string();
   }
 
   bool do_path(fs::path const& p) const {
