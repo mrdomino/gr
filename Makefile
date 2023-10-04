@@ -3,15 +3,15 @@ WFLAGS=-std=c++2b -Wall -Wextra -pedantic
 LDFLAGS=-lre2
 PREFIX=/usr/local
 
-all: cr
+all: gr
 
-cr: cr.c++
+gr: gr.c++
 	$(CXX) $(WFLAGS) $(CXXFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
-	rm cr
+	rm gr
 
 install:
-	install -o root -g wheel -m 755 cr $(PREFIX)/bin
+	install -o root -g wheel -m 755 gr $(PREFIX)/bin
 
 .PHONY: all clean install
