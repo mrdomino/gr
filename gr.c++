@@ -234,6 +234,7 @@ class SearchJob : public Job {
     }
 
     if (state.params.lflag) {
+      (void) state.matched_one.test_and_set();
       mPrintLn("{}", pretty_path());
       return;
     }
