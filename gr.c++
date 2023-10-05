@@ -23,19 +23,6 @@ namespace fs = std::filesystem;
 
 #define FWD(x) std::forward<decltype(x)>(x)
 
-static const std::vector<std::string> ignored_files {
-  ".git",
-};
-
-static bool is_ignored_file(std::string const& s) {
-  return std::binary_search(
-      std::begin(ignored_files), std::end(ignored_files), s);
-}
-
-static bool is_ignored(fs::path const& p) {
-  return is_ignored_file(p.filename().string());
-}
-
 static bool is_binary(std::fstream& fs) {
   char buf[512];
   fs.seekg(0, std::ios_base::end);
@@ -192,7 +179,7 @@ class AddPathsJob : public Job {
       : state(state), path(FWD(path)), ss_(ss_) {}
 
   void operator()() override {
-    if (is_ignored(path)) {
+    if (is_ignored()) {
       return;
     }
     auto s = ss_.value_or(fs::status(path));
@@ -216,6 +203,11 @@ class AddPathsJob : public Job {
   }
 
  private:
+  bool is_ignored() const {
+    auto name = path.filename().string();
+    return name != "." && name != ".." && name.starts_with('.');
+  }
+
   GlobalState& state;
   fs::path path;
   std::optional<fs::file_status> ss_;
