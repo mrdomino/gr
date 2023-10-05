@@ -181,12 +181,17 @@ class SearchJob : public Job {
 
     // TODO multiline
     size_t line = 0;
-    std::vector<std::pair<size_t, std::string_view>> matches;
+    struct Match {
+      size_t line;
+      std::string_view text;
+      bool truncated;
+    };
+    std::vector<Match> matches;
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = std::string_view(view.begin(), std::min(2048uz, end));
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
-        matches.emplace_back(line, text);
+        matches.emplace_back(line, text, end != text.size());
         maxWidth = std::ceil(std::log10(line + 1));
       }
     };
@@ -209,11 +214,14 @@ class SearchJob : public Job {
       mPrintLn(BOLD_ON "{}" BOLD_OFF, pretty_path());
     }
     else mPrintLn("{}", pretty_path());
-    for (auto [line, text]: matches) {
+    for (auto [line, text, truncated]: matches) {
+      const auto trunc =
+          truncated ? reinterpret_cast<const char*>(u8"…") : "";
       if (state.params.stdout_is_tty) {
-        mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}", line, maxWidth, text);
+        mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}" BOLD_ON "{}" BOLD_OFF,
+                 line, maxWidth, text, trunc);
       }
-      else mPrintLn("{:{}}:{}", line, maxWidth, text);
+      else mPrintLn("{:{}}:{}{}", line, maxWidth, text, trunc);
     }
   }
 
