@@ -29,32 +29,29 @@ struct Defer {
 class WorkQueue {
  public:
   void push(std::unique_ptr<Job> job) {
+    std::unique_lock lk(m);
     (void)++pending;
-    bool hadNone;
-    { std::lock_guard lk(m);
-      if (back) {
-        hadNone = false;
-        back->next = std::move(job);
-        back = back->next.get();
-      }
-      else {
-        hadNone = true;
-        front = std::move(job);
-        back = front.get();
-      }
+    if (back) {
+      back->next = std::move(job);
+      back = back->next.get();
     }
-    if (hadNone) {
-      cv.notify_one();
+    else {
+      front = std::move(job);
+      back = front.get();
     }
+    lk.unlock();
+    cv.notify_one();
   }
 
   bool runOne() {
     auto job = take();
     if (job) {
       Defer d([this]{
-        auto p = --pending;
-        assert(p >= 0);
-        if (p == 0) {
+        std::unique_lock lk(m);
+        assert(pending > 0);
+        if (--pending == 0) {
+          assert(!front);
+          lk.unlock();
           cv.notify_all();
         }
       });
@@ -65,23 +62,13 @@ class WorkQueue {
   }
 
   void runUntilEmpty() {
-    while (!empty()) {
-      if (!runOne()) {
-        std::unique_lock lk(m);
-        cv.wait(lk, [this]{ return back || empty(); });
-      }
-    }
-  }
-
-  bool empty() const {
-    auto p = pending.load();
-    assert(p >= 0);
-    return p == 0;
+    while (runOne()) { }
   }
 
  private:
   std::unique_ptr<Job> take() {
-    std::lock_guard lk(m);
+    std::unique_lock lk(m);
+    cv.wait(lk, [this]{ return front || !pending; });
     auto ret = std::move(front);
     if (ret) {
       front = std::move(ret->next);
@@ -92,8 +79,8 @@ class WorkQueue {
     return ret;
   }
 
-  std::atomic_int pending = 0;
   std::mutex m;
+  int pending = 0;
   std::condition_variable cv;
   std::unique_ptr<Job> front;
   Job* back = nullptr;
