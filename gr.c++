@@ -137,22 +137,23 @@ class SearchJob : public Job {
 
     // TODO multiline
     size_t line = 0;
-    std::vector<std::pair<size_t, absl::string_view>> matches;
+    std::vector<std::pair<size_t, std::string_view>> matches;
+    uint8_t maxWidth = 0;
+    auto try_add_match = [&, this](size_t end) {
+      auto text = absl::string_view(view.begin(), std::min(2048uz, end));
+      if (re2::RE2::PartialMatch(text, state.expr)) {
+        matches.emplace_back(line, std::string_view(text.begin(), text.size()));
+        maxWidth = std::ceil(std::log10(line + 1));
+      }
+    };
     while (view.size()) {
       ++line;
       auto nl = view.find('\n');
       if (nl == absl::string_view::npos) {
-        auto text = absl::string_view(
-            view.begin(), std::min(2048uz, view.size()));
-        if (re2::RE2::PartialMatch(text, state.expr)) {
-          matches.emplace_back(line, text);
-        }
+        try_add_match(view.size());
         break;
       }
-      auto text = absl::string_view(view.begin(), std::min(2048uz, nl));
-      if (re2::RE2::PartialMatch(text, state.expr)) {
-        matches.emplace_back(line, text);
-      }
+      try_add_match(nl);
       view.remove_prefix(nl + 1);
     }
 
@@ -162,7 +163,7 @@ class SearchJob : public Job {
     }
     mPrintLn("{}", pretty_path());
     for (auto [line, text]: matches) {
-      mPrintLn("{:3}:{}", line, std::string_view(text.begin(), text.size()));
+      mPrintLn("{:{}}:{}", line, maxWidth, text);
     }
   }
 
