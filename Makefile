@@ -1,4 +1,3 @@
-CXX=clang++
 WFLAGS=-std=c++23 -Wall -Wextra -pedantic
 LDFLAGS=-lre2
 PREFIX=/usr/local
@@ -17,7 +16,7 @@ gr: gr.o io.o job.o
 	$(CXX) $(WFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
 
 clean:
-	rm $(OBJS)
+	-rm $(OBJS)
 
 install:
 	install -o root -g wheel -m 755 gr $(PREFIX)/bin
