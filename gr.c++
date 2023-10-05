@@ -209,14 +209,19 @@ class SearchJob : public Job {
       mPrintLn(BOLD_ON "{}" BOLD_OFF, pretty_path());
     }
     else mPrintLn("{}", pretty_path());
-    for (auto [line, text, truncated]: matches) {
-      const auto trunc =
-          truncated ? reinterpret_cast<const char*>(u8"…") : "";
-      if (state.params.stdout_is_tty) {
-        mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}" BOLD_ON "{}" BOLD_OFF,
-                 line, maxWidth, text, trunc);
+    if (matches.size()) {
+      for (auto [line, text, truncated]: matches) {
+        const auto trunc =
+            truncated ? reinterpret_cast<const char*>(u8"…") : "";
+        if (state.params.stdout_is_tty) {
+          mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}" BOLD_ON "{}" BOLD_OFF,
+                   line, maxWidth, text, trunc);
+        }
+        else mPrintLn("{:{}}:{}{}", line, maxWidth, text, trunc);
       }
-      else mPrintLn("{:{}}:{}{}", line, maxWidth, text, trunc);
+    }
+    else {
+      mPrintLn("(matched too far into line to display)");
     }
   }
 
