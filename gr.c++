@@ -143,27 +143,36 @@ class SearchJob : public Job {
       : state(state), path(FWD(path)) {}
 
   void operator()() override {
+    try {
+      run_unchecked();
+    }
+    catch (const std::ios_base::failure& e) {
+      mPrintLn(std::cerr, "Error on {}: {}", path.string(), e.what());
+    }
+    catch (const std::exception& e) {
+      mPrintLn(std::cerr,
+               "Unexpected exception on {}: {}", path.string(), e.what());
+      throw;
+    }
+  }
+
+ private:
+  void run_unchecked() {
     std::unique_ptr<char[]> contents;
     auto fs = std::fstream(path, std::ios_base::in);
     fs.exceptions(fs.failbit | fs.badbit);
-    size_t len;
-    try {
-      fs.seekg(0, std::ios_base::end);
-      len = fs.tellg();
-      fs.seekg(0);
-      contents = std::make_unique_for_overwrite<char[]>(len);
-      const auto pre_len = std::min(512uz, len);
-      fs.read(contents.get(), pre_len);
-      if (is_binary(std::string_view(contents.get(), pre_len))) {
-        return;
-      }
-      if (len != pre_len) {
-        fs.seekg(0);
-        fs.read(contents.get(), len);
-      }
-    } catch (std::ios_base::failure& e) {
-      mPrintLn("Skipping {} (IO error)", path.string());
+    fs.seekg(0, std::ios_base::end);
+    const size_t len = fs.tellg();
+    fs.seekg(0);
+    contents = std::make_unique_for_overwrite<char[]>(len);
+    const auto pre_len = std::min(512uz, len);
+    fs.read(contents.get(), pre_len);
+    if (is_binary(std::string_view(contents.get(), pre_len))) {
       return;
+    }
+    if (len != pre_len) {
+      fs.seekg(0);
+      fs.read(contents.get(), len);
     }
     std::string_view view(contents.get(), len);
     if (!re2::RE2::PartialMatch(to_absl(view), state.expr)) {
@@ -208,7 +217,6 @@ class SearchJob : public Job {
     }
   }
 
- private:
   std::string pretty_path() const {
     if (*std::begin(path) == ".") {
       // XX surprisingly painful.... we don't want relative() since it
@@ -233,14 +241,35 @@ class AddPathsJob : public Job {
       : state(state), path(FWD(path)), ss_(ss_) {}
 
   void operator()() override {
+    try {
+      run_unchecked();
+    }
+    catch (const fs::filesystem_error& e) {
+      mPrintLn(std::cerr,
+               "Skipping {}: error: {}", path.string(), e.code().message());
+    }
+    catch (const std::exception& e) {
+      mPrintLn(std::cerr,
+               "Unexpected exception on {}: {}", path.string(), e.what());
+      throw;
+    }
+  }
+
+ private:
+  void run_unchecked() {
     if (is_ignored()) {
       return;
     }
     auto s = ss_.value_or(fs::status(path));
     if (fs::is_regular_file(s)) {
-      state.queue.push(
-          std::make_unique<SearchJob>(
-              state, std::move(path)));
+      if (0 == access(path.c_str(), R_OK)) {
+        state.queue.push(
+            std::make_unique<SearchJob>(
+                state, std::move(path)));
+      }
+      else {
+        mPrintLn(std::cerr, "Skipping {}: Permission denied", path.string());
+      }
     }
     else if (fs::is_directory(s)) {
       for (auto it{fs::directory_iterator(std::move(path))};
@@ -251,12 +280,11 @@ class AddPathsJob : public Job {
                 state, std::move(*it), std::move(itS)));
       }
     }
-    else {
-      mPrintLn("Skipping {}", std::move(path).string());
+    else if (!fs::exists(s)) {
+      mPrintLn(std::cerr, "Skipping {}: nonexistent", path.string());
     }
   }
 
- private:
   bool is_ignored() const {
     auto name = path.filename().string();
     return name != "." && name != ".." && name.starts_with('.');
