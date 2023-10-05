@@ -74,12 +74,7 @@ static bool is_binary(std::string_view buf) {
     // UTF-8 BOM
     return false;
   }
-  if (buf.starts_with("\x7f" "ELF")) {
-    // ELF header
-    return true;
-  }
-  if (buf.starts_with("\xcf\xfa\xed\xfe")) {
-    // Mach-O header, 64-bit little-endian
+  if (buf.starts_with("%PDF-")) {
     return true;
   }
   if (buf.find('\0') != buf.npos) {
