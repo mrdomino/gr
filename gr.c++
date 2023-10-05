@@ -23,32 +23,24 @@ namespace fs = std::filesystem;
 
 #define FWD(x) std::forward<decltype(x)>(x)
 
-static bool is_binary(std::fstream& fs) {
-  char buf[512];
-  fs.seekg(0, std::ios_base::end);
-  auto len = std::min(static_cast<size_t>(fs.tellg()), 512uz);
-  fs.seekg(0);
-  fs.read(buf, len);
-  fs.seekg(0);
-  if (len == 0) {
+static bool is_binary(std::string_view buf) {
+  if (!buf.size()) {
     return false;
   }
-  if (len >= 3 && std::string(buf, buf + 3) == "\xef\xbb\xbf") {
+  if (buf.starts_with("\xef\xbb\xbf")) {
     // UTF-8 BOM
     return false;
   }
-  if (len >= 4 && std::string(buf, buf + 4) == "\x7f" "ELF") {
+  if (buf.starts_with("\x7f" "ELF")) {
     // ELF header
     return true;
   }
-  if (len >= 4 && std::string(buf, buf + 4) == "\xcf\xfa\xed\xfe") {
+  if (buf.starts_with("\xcf\xfa\xed\xfe")) {
     // Mach-O header, 64-bit little-endian
     return true;
   }
-  for (auto i = 0uz; i < len; ++i) {
-    if (buf[i] == 0) {
-      return true;
-    }
+  if (buf.find('\0') != buf.npos) {
+    return true;
   }
   return false;
 }
@@ -105,16 +97,22 @@ class SearchJob : public Job {
   void operator()() override {
     std::unique_ptr<char[]> contents;
     auto fs = std::fstream(path, std::ios_base::in);
-    if (is_binary(fs)) {
-      return;
-    }
-    fs.seekg(0, std::ios_base::end);
-    auto len = fs.tellg();
-    fs.seekg(0);
-    contents = std::make_unique_for_overwrite<char[]>(len);
-    fs.read(contents.get(), len);
-    if (fs.fail()) {
-      mPrintLn("IO error on {}", path.string());
+    fs.exceptions(fs.failbit | fs.badbit);
+    size_t len;
+    try {
+      fs.seekg(0, std::ios_base::end);
+      len = fs.tellg();
+      fs.seekg(0);
+      contents = std::make_unique_for_overwrite<char[]>(len);
+      const auto pre_len = std::min(512uz, len);
+      fs.read(contents.get(), pre_len);
+      if (is_binary(std::string_view(contents.get(), pre_len))) {
+        return;
+      }
+      fs.seekg(0);
+      fs.read(contents.get(), len);
+    } catch (std::ios_base::failure& e) {
+      mPrintLn("Skipping {} (IO error)", path.string());
       return;
     }
     absl::string_view view(contents.get(), len);
