@@ -36,8 +36,9 @@ struct Params {
   std::string_view pattern;
   std::optional<std::vector<std::string_view>> paths;
   bool stdout_is_tty = false;
-  bool lflag = false;
   bool hflag = false;
+  bool lflag = false;
+  bool llflag = false;
   bool version_flag = false;
 };
 
@@ -58,6 +59,10 @@ Args parse_args(int const argc, char const* const argv[]) {
     if (parsingArgs) {
       if (arg == "-l" || arg == "--files-with-matches") {
         params.lflag = true;
+        continue;
+      }
+      if (arg == "--long-lines") {
+        params.llflag = true;
         continue;
       }
       if (arg == "-h" || arg == "--help") {
@@ -107,6 +112,7 @@ Args parse_args(int const argc, char const* const argv[]) {
       "Options:\n"
       "  -l --files-with-matches  Only print filenames that contain matches\n"
       "                           (don't print the matching lines)\n"
+      "     --long-lines          Print long lines (default truncates to ~2k)\n"
       "  -h --help                Print this usage message and exit.\n"
       "     --version             Print the program version.\n"
   );
@@ -242,7 +248,7 @@ class SearchJob : public Job {
     std::vector<Match> matches;
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
-      auto text = std::string_view(view.begin(), std::min(2048uz, end));
+      auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
         matches.emplace_back(line, text, end != text.size());
         maxWidth = std::ceil(std::log10(line + 1));
@@ -281,6 +287,31 @@ class SearchJob : public Job {
     else {
       mPrintLn("(matched too far into line to display)");
     }
+  }
+
+  std::string_view truncate_span(std::string_view view, size_t end) {
+    if (state.params.llflag || end <= 2048uz) {
+      return std::string_view(view.begin(), end);
+    }
+    std::string_view ret(view.begin(), 2048uz);
+    // try to truncate to the nearest UTF-8 code point
+    auto it = std::rbegin(ret);
+    int i = 0;
+    // scan until we're at something that is not a utf8-tail
+    for (; i < 4 && (*it & 0xc0) == 0x80; ++it, ++i) { }
+    static constexpr std::array<std::pair<uint8_t, uint8_t>, 5> mask_check {{
+      {0b10000000, 0},            // 1 from end: must be ASCII
+      {0b11100000, 0b11000000},   // 2 from end: ok if it's a 2-byte code point
+      {0b11110000, 0b11100000},   // 3 from end
+      {0b11111000, 0b11110000},   // 4 from end
+      {0, 0},                     // 5? TODO(display): not valid utf8; passthru
+    }};
+    assert(i < 5);
+    auto [mask, check] = mask_check[i];
+    if ((*it & mask) != check) {
+      ret.remove_suffix(i + 1);
+    }
+    return ret;
   }
 
   std::string pretty_path() const {
