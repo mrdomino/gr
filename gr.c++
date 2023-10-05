@@ -33,37 +33,89 @@ struct Error {
 };
 
 struct Params {
-  std::string pattern;
-  std::optional<std::vector<std::string>> paths;
-  bool stdout_is_tty;
+  std::string_view pattern;
+  std::optional<std::vector<std::string_view>> paths;
+  bool stdout_is_tty = false;
+  bool lflag = false;
+  bool hflag = false;
+  bool version_flag = false;
 };
 
 struct Args {
-  std::string argv0;
+  std::string_view argv0;
   std::expected<Params, Error> params;
 };
 
 Args parse_args(int const argc, char const* const argv[]) {
   Args ret;
   ret.argv0 = argv[0];
-  if (argc < 2) {
-    ret.params = std::unexpected{Error{"missing pattern"}};
-    return ret;
-  }
   Params params;
-  params.pattern = argv[1];
-  if (argc > 2) {
-    params.paths.emplace(argv + 2, argv + argc);
+  bool parsingArgs = true;
+  bool foundPattern = false;
+  std::vector<std::string_view> paths;
+  for (auto it = argv + 1; it != argv + argc; ++it) {
+    std::string_view arg(*it);
+    if (parsingArgs) {
+      if (arg == "-l" || arg == "--files-with-matches") {
+        params.lflag = true;
+        continue;
+      }
+      if (arg == "-h" || arg == "--help") {
+        params.hflag = true;
+        continue;
+      }
+      if (arg == "--version") {
+        params.version_flag = true;
+        continue;
+      }
+      if (arg == "--") {
+        parsingArgs = false;
+        continue;
+      }
+    }
+    if (!foundPattern) {
+      params.pattern = arg;
+      foundPattern = true;
+      continue;
+    }
+    paths.push_back(arg);
   }
   params.stdout_is_tty = isatty(fileno(stdout));
+  if (!foundPattern && !params.hflag && !params.version_flag) {
+    ret.params = std::unexpected{Error{"Missing pattern"}};
+    return ret;
+  }
+  if (paths.size()) {
+    params.paths = std::move(paths);
+  }
   ret.params = std::move(params);
   return ret;
 }
 
 [[noreturn]] void usage(Args&& args) {
-  mPrintLn(std::cerr, "{0}: {1}\nusage: {0} <pattern> [filename...]",
-           args.argv0, args.params.error().reason);
+  args.params.transform_error([argv0=args.argv0](auto&& e) {
+    mPrintLn(std::cerr, "{}: {}", argv0, e.reason);
+    return e;
+  });
+  mPrintLn(std::cerr, "usage: {} [options] <pattern> [path ...]", args.argv0);
+  mPrintLn(
+      std::cerr,
+
+      "\nRecursively search for pattern in path.\n"
+      "Uses the re2 regular expression library.\n\n"
+
+      "Options:\n"
+      "  -l --files-with-matches  Only print filenames that contain matches\n"
+      "                           (don't print the matching lines)\n"
+      "  -h --help                Print this usage message and exit.\n"
+      "     --version             Print the program version.\n"
+  );
   exit(2);
+}
+
+[[noreturn]] void version() {
+  mPrintLn("gr version 0.1.0");
+  exit(0);
 }
 
 static bool is_binary(std::string_view buf) {
@@ -83,25 +135,28 @@ static bool is_binary(std::string_view buf) {
   return false;
 }
 
+inline constexpr absl::string_view to_absl(std::string_view view) {
+  return absl::string_view(view.begin(), view.size());
+}
+
 class SyncedRe {
  public:
-  explicit SyncedRe(std::string pattern): pattern(std::move(pattern)) {}
+  explicit SyncedRe(std::string_view pattern): pattern(std::move(pattern)) {}
 
   operator const re2::RE2&() const {
     std::call_once(compile_expr, [this]{
-      expr = std::make_unique<re2::RE2>(pattern);
+      expr = std::make_unique<re2::RE2>(to_absl(pattern));
       if (!expr->ok()) {
         mPrintLn(std::cerr, "Failed to compile regexp /{}/: {}",
                  pattern, expr->error());
         exit(2);
       }
-      pattern.clear();
     });
     return *expr;
   }
 
  private:
-  mutable std::string pattern;
+  mutable std::string_view pattern;
   mutable std::unique_ptr<re2::RE2> expr;
   mutable std::once_flag compile_expr;
 };
@@ -118,8 +173,10 @@ class CompileReJob : public Job {
   CompileReJob(GlobalState const& state): state(state) {}
 
   void operator()() override {
+    // Just observe the expression to trigger the call_once. The abort() should
+    // be unreachable, and is there to try to prevent this from being optimized
+    // out.
     if (!static_cast<const re2::RE2&>(state.expr).ok()) {
-      // Should be impossible; abort to have an effect.
       abort();
     }
   }
@@ -127,10 +184,6 @@ class CompileReJob : public Job {
  private:
   const GlobalState& state;
 };
-
-inline constexpr absl::string_view to_absl(std::string_view view) {
-  return absl::string_view(view.begin(), view.size());
-}
 
 class SearchJob : public Job {
  public:
@@ -171,6 +224,11 @@ class SearchJob : public Job {
     }
     std::string_view view(contents.get(), len);
     if (!re2::RE2::PartialMatch(to_absl(view), state.expr)) {
+      return;
+    }
+
+    if (state.params.lflag) {
+      mPrintLn("{}", pretty_path());
       return;
     }
 
@@ -272,8 +330,7 @@ class AddPathsJob : public Job {
     if (fs::is_regular_file(s)) {
       if (0 == access(path.c_str(), R_OK)) {
         state.queue.push(
-            std::make_unique<SearchJob>(
-                state, std::move(path)));
+            std::make_unique<SearchJob>(state, std::move(path)));
       }
       else {
         mPrintLn(std::cerr, "Skipping {}: Permission denied", path.string());
@@ -315,15 +372,18 @@ struct JobRunner {
 
 int main(int const argc, char const* const argv[]) {
   auto args = parse_args(argc, argv);
-  if (!args.params.has_value()) {
+  if (!args.params.has_value() || args.params->hflag) {
     usage(std::move(args));
   }
   auto& params = args.params.value();
+  if (params.version_flag) {
+    version();
+  }
   const auto nThreads = std::thread::hardware_concurrency();
   auto state = GlobalState{params, SyncedRe(params.pattern), {}};
-  auto paths = params.paths.value_or(std::vector<std::string>{"."});
-  for (auto&& path: std::move(paths)) {
-    state.queue.push(std::make_unique<AddPathsJob>(state, std::move(path)));
+  auto paths = params.paths.value_or(std::vector<std::string_view>{"."});
+  for (auto path: std::move(paths)) {
+    state.queue.push(std::make_unique<AddPathsJob>(state, path));
   }
   state.queue.push(std::make_unique<CompileReJob>(state));
   std::vector<std::thread> threads;
