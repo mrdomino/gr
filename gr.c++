@@ -276,13 +276,14 @@ class SearchJob : public Job {
     else mPrintLn("{}", pretty_path());
     if (matches.size()) {
       for (auto [line, text, truncated]: matches) {
-        const auto trunc =
-            truncated ? reinterpret_cast<const char*>(u8"…") : "";
         if (state.params.stdout_is_tty) {
-          mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}" BOLD_ON "{}" BOLD_OFF,
-                   line, maxWidth, text, trunc);
+          mPrint(BOLD_ON "{:{}}" BOLD_OFF ":{}", line, maxWidth, text);
         }
-        else mPrintLn("{:{}}:{}{}", line, maxWidth, text, trunc);
+        else mPrint("{:{}}:{}", line, maxWidth, text);
+        if (truncated) {
+          mPrintLn("{}", ellipses());
+        }
+        else mPrintLn("");
       }
     }
     else {
@@ -313,6 +314,16 @@ class SearchJob : public Job {
       ret.remove_suffix(i + 1);
     }
     return ret;
+  }
+
+  std::string_view ellipses() {
+    static constexpr std::array<std::u8string_view, 2> ellipses {{
+      u8"…",
+      BOLD_ON u8"…" BOLD_OFF,
+    }};
+    const auto ret = ellipses[state.params.stdout_is_tty];
+    return std::string_view(
+        reinterpret_cast<const char*>(ret.data()), ret.size());
   }
 
   std::string pretty_path() const {

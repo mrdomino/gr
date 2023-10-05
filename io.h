@@ -22,6 +22,11 @@ void mPrintLn(std::ostream& os, std::format_string<Args...> fmt,
 }
 
 template <typename... Args>
+void mPrint(std::format_string<Args...> fmt, Args&&... args) {
+  mPrint(std::cout, fmt, std::forward<Args>(args)...);
+}
+
+template <typename... Args>
 void mPrintLn(std::format_string<Args...> fmt, Args&&... args) {
   mPrintLn(std::cout, fmt, std::forward<Args>(args)...);
 }
