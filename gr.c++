@@ -89,6 +89,10 @@ class CompileReJob : public Job {
   const GlobalState& state;
 };
 
+inline constexpr absl::string_view to_absl(std::string_view view) {
+  return absl::string_view(view.begin(), view.size());
+}
+
 class SearchJob : public Job {
  public:
   SearchJob(GlobalState& state, auto&& path)
@@ -115,8 +119,8 @@ class SearchJob : public Job {
       mPrintLn("Skipping {} (IO error)", path.string());
       return;
     }
-    absl::string_view view(contents.get(), len);
-    if (!re2::RE2::PartialMatch(view, state.expr)) {
+    std::string_view view(contents.get(), len);
+    if (!re2::RE2::PartialMatch(to_absl(view), state.expr)) {
       return;
     }
 
@@ -125,16 +129,16 @@ class SearchJob : public Job {
     std::vector<std::pair<size_t, std::string_view>> matches;
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
-      auto text = absl::string_view(view.begin(), std::min(2048uz, end));
-      if (re2::RE2::PartialMatch(text, state.expr)) {
-        matches.emplace_back(line, std::string_view(text.begin(), text.size()));
+      auto text = std::string_view(view.begin(), std::min(2048uz, end));
+      if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
+        matches.emplace_back(line, text);
         maxWidth = std::ceil(std::log10(line + 1));
       }
     };
     while (view.size()) {
       ++line;
       auto nl = view.find('\n');
-      if (nl == absl::string_view::npos) {
+      if (nl == view.npos) {
         try_add_match(view.size());
         break;
       }
