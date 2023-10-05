@@ -1,6 +1,6 @@
 CXX=clang++
-WFLAGS=-std=c++2b -Wall -Wextra -pedantic
-LDFLAGS=-lre2
+WFLAGS=-std=c++23 -Wall -Wextra -pedantic
+LDFLAGS=-lre2 -labsl_string_view
 PREFIX=/usr/local
 
 all: gr
