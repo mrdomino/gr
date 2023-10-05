@@ -157,8 +157,10 @@ class SearchJob : public Job {
       if (is_binary(std::string_view(contents.get(), pre_len))) {
         return;
       }
-      fs.seekg(0);
-      fs.read(contents.get(), len);
+      if (len != pre_len) {
+        fs.seekg(0);
+        fs.read(contents.get(), len);
+      }
     } catch (std::ios_base::failure& e) {
       mPrintLn("Skipping {} (IO error)", path.string());
       return;
