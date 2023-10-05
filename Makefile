@@ -5,8 +5,8 @@ PREFIX=/usr/local
 
 all: gr
 
-gr: gr.c++
-	$(CXX) $(WFLAGS) $(CXXFLAGS) $(LDFLAGS) $< -o $@
+gr: gr.c++ io.c++ job.c++
+	$(CXX) $(WFLAGS) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
 
 clean:
 	rm gr

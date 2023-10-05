@@ -2,10 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <exception>
 #include <expected>
 #include <filesystem>
-#include <format>
 #include <fstream>
 #include <iostream>
 #include <memory>
@@ -17,6 +15,9 @@
 
 #include <absl/strings/string_view.h>
 #include <re2/re2.h>
+
+#include "io.h"
+#include "job.h"
 
 namespace fs = std::filesystem;
 
@@ -64,120 +65,6 @@ static bool is_binary(std::fstream& fs) {
   }
   return false;
 }
-
-static std::recursive_mutex io_mutex;
-
-template <typename... Args>
-void mPrint(std::ostream& os, std::format_string<Args...> fmt, Args&&... args) {
-  auto s = std::vformat(fmt.get(), std::make_format_args(args...));
-  std::lock_guard lk(io_mutex);
-  os << std::move(s);
-}
-
-template <typename... Args>
-void mPrintLn(std::ostream& os, std::format_string<Args...> fmt,
-              Args&&... args) {
-  auto s = std::vformat(fmt.get(), std::make_format_args(args...));
-  std::lock_guard lk(io_mutex);
-  os << std::move(s) << '\n';
-}
-
-template <typename... Args>
-void mPrintLn(std::format_string<Args...> fmt, Args&&... args) {
-  mPrintLn(std::cout, fmt, std::forward<Args>(args)...);
-}
-
-class WorkQueue;
-
-struct Job {
-  virtual ~Job() = default;
-
-  virtual void operator()() = 0;
-
- private:
-  std::unique_ptr<Job> next;
-
-  friend class WorkQueue;
-};
-
-template <typename F>
-struct Defer {
-  F f;
-  ~Defer() {
-    std::move(f)();
-  }
-};
-
-class WorkQueue {
- public:
-  void push(std::unique_ptr<Job> job) {
-    (void)++pending;
-    bool hadNone;
-    { std::lock_guard lk(m);
-      if (back) {
-        hadNone = false;
-        back->next = std::move(job);
-        back = back->next.get();
-      }
-      else {
-        hadNone = true;
-        front = std::move(job);
-        back = front.get();
-      }
-    }
-    if (hadNone) {
-      cv.notify_one();
-    }
-  }
-
-  bool runNext() {
-    auto job = take();
-    if (job) {
-      Defer d([this]{
-        if (--pending <= 0) {
-          cv.notify_all();
-        }
-      });
-      std::move(*job)();
-      return true;
-    }
-    return false;
-  }
-
-  void runUntilEmpty() {
-    while (!empty()) {
-      if (!runNext()) {
-        std::unique_lock lk(m);
-        cv.wait(lk, [this] { return back != nullptr || empty(); });
-      }
-    }
-  }
-
-  bool empty() const {
-    auto v = pending.load();
-    assert(v >= 0);
-    return v <= 0;
-  }
-
- private:
-  std::unique_ptr<Job> take() {
-    std::lock_guard lk(m);
-    std::unique_ptr<Job> ret = std::move(front);
-    if (ret) {
-      front = std::move(ret->next);
-      if (!front) {
-        back = nullptr;
-      }
-    }
-    return ret;
-  }
-
-  std::atomic_int pending = 0;
-  mutable std::mutex m;
-  std::condition_variable cv;
-  std::unique_ptr<Job> front;
-  Job* back = nullptr;
-};
 
 class SyncedRe {
  public:
@@ -243,42 +130,28 @@ class SearchJob : public Job {
       mPrintLn("IO error on {}", path.string());
       return;
     }
-    absl::string_view view(contents.get(), len), v2(view);
-    if (!re2::RE2::FindAndConsume(&v2, state.expr)) {
+    absl::string_view view(contents.get(), len);
+    if (!re2::RE2::PartialMatch(view, state.expr)) {
       return;
     }
 
-
     // TODO multiline
-    std::vector<std::pair<size_t, absl::string_view>> matches;
     size_t line = 0;
-    while (view.size()) {
-      ++line;
-      auto nl = view.find('\n');
-      if (nl == absl::string_view::npos || view.begin() + nl >= v2.begin()) {
-        if (nl == absl::string_view::npos) {
-          nl = view.size() - 1;
-        }
-        auto line_text = absl::string_view(view.begin(), std::min(2048uz, nl));
-        if (re2::RE2::PartialMatch(line_text, state.expr)) {
-          matches.emplace_back(line, line_text);
-        }
-        view.remove_prefix(nl + 1);
-        break;
-      }
-      view.remove_prefix(nl + 1);
-    }
-
-
+    std::vector<std::pair<size_t, absl::string_view>> matches;
     while (view.size()) {
       ++line;
       auto nl = view.find('\n');
       if (nl == absl::string_view::npos) {
-        nl = view.size() - 1;
+        auto text = absl::string_view(
+            view.begin(), std::min(2048uz, view.size()));
+        if (re2::RE2::PartialMatch(text, state.expr)) {
+          matches.emplace_back(line, text);
+        }
+        break;
       }
-      auto line_text = absl::string_view(view.begin(), std::min(2048uz, nl));
-      if (re2::RE2::PartialMatch(line_text, state.expr)) {
-        matches.emplace_back(line, line_text);
+      auto text = absl::string_view(view.begin(), std::min(2048uz, nl));
+      if (re2::RE2::PartialMatch(text, state.expr)) {
+        matches.emplace_back(line, text);
       }
       view.remove_prefix(nl + 1);
     }
@@ -378,8 +251,8 @@ Args parse_args(int const argc, char const* const argv[]) {
 }
 
 [[noreturn]] void usage(Args&& args) {
-  std::cerr << std::format("{0}: {1}\nusage: {0} <pattern> [filename...]\n",
-                           args.argv0, args.params.error().reason);
+  mPrintLn(std::cerr, "{0}: {1}\nusage: {0} <pattern> [filename...]",
+           args.argv0, args.params.error().reason);
   exit(2);
 }
 
