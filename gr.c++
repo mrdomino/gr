@@ -13,6 +13,8 @@
 #include <utility>
 #include <vector>
 
+#include <unistd.h>
+
 #include <absl/strings/string_view.h>
 #include <re2/re2.h>
 
@@ -22,6 +24,47 @@
 namespace fs = std::filesystem;
 
 #define FWD(x) std::forward<decltype(x)>(x)
+
+#define BOLD_ON "\x1b[1m"
+#define BOLD_OFF "\x1b[0m"
+
+struct Error {
+  std::string reason;
+};
+
+struct Params {
+  std::string pattern;
+  std::optional<std::vector<std::string>> paths;
+  bool stdout_is_tty;
+};
+
+struct Args {
+  std::string argv0;
+  std::expected<Params, Error> params;
+};
+
+Args parse_args(int const argc, char const* const argv[]) {
+  Args ret;
+  ret.argv0 = argv[0];
+  if (argc < 2) {
+    ret.params = std::unexpected{Error{"missing pattern"}};
+    return ret;
+  }
+  Params params;
+  params.pattern = argv[1];
+  if (argc > 2) {
+    params.paths.emplace(argv + 2, argv + argc);
+  }
+  params.stdout_is_tty = isatty(fileno(stdout));
+  ret.params = std::move(params);
+  return ret;
+}
+
+[[noreturn]] void usage(Args&& args) {
+  mPrintLn(std::cerr, "{0}: {1}\nusage: {0} <pattern> [filename...]",
+           args.argv0, args.params.error().reason);
+  exit(2);
+}
 
 static bool is_binary(std::string_view buf) {
   if (!buf.size()) {
@@ -69,6 +112,7 @@ class SyncedRe {
 };
 
 struct GlobalState {
+  const Params params;
   const SyncedRe expr;
   WorkQueue queue;
   std::atomic_flag matched_one = ATOMIC_FLAG_INIT;
@@ -150,9 +194,15 @@ class SearchJob : public Job {
     if (state.matched_one.test_and_set()) {
       mPrintLn("");
     }
-    mPrintLn("{}", pretty_path());
+    if (state.params.stdout_is_tty) {
+      mPrintLn(BOLD_ON "{}" BOLD_OFF, pretty_path());
+    }
+    else mPrintLn("{}", pretty_path());
     for (auto [line, text]: matches) {
-      mPrintLn("{:{}}:{}", line, maxWidth, text);
+      if (state.params.stdout_is_tty) {
+        mPrintLn(BOLD_ON "{:{}}" BOLD_OFF ":{}", line, maxWidth, text);
+      }
+      else mPrintLn("{:{}}:{}", line, maxWidth, text);
     }
   }
 
@@ -215,42 +265,6 @@ class AddPathsJob : public Job {
   std::optional<fs::file_status> ss_;
 };
 
-struct Error {
-  std::string reason;
-};
-
-struct Params {
-  std::string pattern;
-  std::optional<std::vector<std::string>> paths;
-};
-
-struct Args {
-  std::string argv0;
-  std::expected<Params, Error> params;
-};
-
-Args parse_args(int const argc, char const* const argv[]) {
-  Args ret;
-  ret.argv0 = argv[0];
-  if (argc < 2) {
-    ret.params = std::unexpected{Error{"missing pattern"}};
-    return ret;
-  }
-  Params params;
-  params.pattern = argv[1];
-  if (argc > 2) {
-    params.paths.emplace(argv + 2, argv + argc);
-  }
-  ret.params = std::move(params);
-  return ret;
-}
-
-[[noreturn]] void usage(Args&& args) {
-  mPrintLn(std::cerr, "{0}: {1}\nusage: {0} <pattern> [filename...]",
-           args.argv0, args.params.error().reason);
-  exit(2);
-}
-
 struct JobRunner {
   JobRunner(WorkQueue& queue): queue(queue) {}
 
@@ -268,14 +282,13 @@ int main(int const argc, char const* const argv[]) {
   }
   auto& params = args.params.value();
   const auto nThreads = std::thread::hardware_concurrency();
-  auto state = GlobalState{SyncedRe(std::move(params.pattern)), {}};
-  auto paths = std::move(params).paths.value_or(std::vector<std::string>{"."});
-  state.queue.push(std::make_unique<CompileReJob>(state));
+  auto state = GlobalState{params, SyncedRe(params.pattern), {}};
+  auto paths = params.paths.value_or(std::vector<std::string>{"."});
   for (auto&& path: std::move(paths)) {
     state.queue.push(std::make_unique<AddPathsJob>(state, std::move(path)));
   }
+  state.queue.push(std::make_unique<CompileReJob>(state));
   std::vector<std::thread> threads;
-  threads.reserve(nThreads);
   for (auto i = 0uz; i < nThreads; ++i) {
     threads.emplace_back(JobRunner(state.queue));
   }
