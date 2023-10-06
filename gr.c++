@@ -248,7 +248,7 @@ struct GlobalState {
 
 class CompileReJob : public Job {
  public:
-  CompileReJob(GlobalState const& state): state(state) {}
+  CompileReJob(const GlobalState& state): state(state) {}
 
   void operator()() override {
     // Just observe the expression to trigger the call_once. The abort() should
@@ -469,15 +469,14 @@ class AddPathsJob : public Job {
     auto s = ss_.value_or(fs::status(path));
     if (fs::is_regular_file(s)) {
       if (0 == access(path.c_str(), R_OK)) {
-        state.queue.push(
-            std::make_unique<SearchJob>(state, std::move(path)));
+        state.queue.push(std::make_unique<SearchJob>(state, path));
       }
       else {
         mPrintLn(std::cerr, "Skipping {}: Permission denied", path.string());
       }
     }
     else if (fs::is_directory(s)) {
-      for (auto it{fs::directory_iterator(std::move(path))};
+      for (auto it{fs::directory_iterator(path)};
            it != fs::directory_iterator(); ++it) {
         auto itS = it->status();
         state.queue.push(
