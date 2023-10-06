@@ -80,8 +80,8 @@ class WorkQueue {
   }
 
   std::mutex m;
-  int pending = 0;
   std::condition_variable cv;
+  int pending = 0;
   std::unique_ptr<Job> front;
   Job* back = nullptr;
 };
