@@ -1,6 +1,9 @@
+#include <cstddef>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <charconv>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -38,6 +41,8 @@ struct Params {
   std::string_view pattern;
   std::optional<std::vector<std::string_view>> paths;
   bool stdout_is_tty = false;
+  uint16_t before_context = 0;
+  uint16_t after_context = 0;
   bool hflag = false;
   bool lflag = false;
   bool llflag = false;
@@ -50,71 +55,138 @@ struct Args {
 };
 
 struct ArgParser {
-  using arg_func = bool (*)(Args&);
-  static constexpr arg_func noop = [](Args&) { return true; };
-  static constexpr arg_func do_hflag = [](Args& args) {
+  using arg_func = bool (*)(Args&, std::string_view);
+  static constexpr arg_func noop = [](Args&, std::string_view) { return true; };
+  static constexpr auto read_int = [](Args& args, auto& value,
+                                      std::string_view arg) {
+    auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
+                                     value);
+    if (ec != std::errc() || ptr != arg.data() + arg.size()) {
+      args.params = std::unexpected{
+          Error{std::format("Invalid number: {}", arg)}};
+      return false;
+    }
+    return true;
+  };
+  static constexpr arg_func do_aflag = [](Args& args, std::string_view arg) {
+    return read_int(args, args.params->after_context, arg);
+  };
+  static constexpr arg_func do_bflag = [](Args& args, std::string_view arg) {
+    return read_int(args, args.params->before_context, arg);
+  };
+  static constexpr arg_func do_cflag = [](Args& args, std::string_view arg) {
+    if (!read_int(args, args.params->after_context, arg)) {
+      return false;
+    }
+    args.params->before_context = args.params->after_context;
+    return true;
+  };
+  static constexpr arg_func do_hflag = [](Args& args, std::string_view) {
     args.params->hflag = true;
     return false;
   };
-  static constexpr arg_func do_lflag = [](Args& args) {
+  static constexpr arg_func do_lflag = [](Args& args, std::string_view) {
     args.params->lflag = true;
     return true;
   };
-  static constexpr arg_func do_llflag = [](Args& args) {
+  static constexpr arg_func do_llflag = [](Args& args, std::string_view) {
     args.params->llflag = true;
     return true;
   };
-  static constexpr arg_func do_version = [](Args& args) {
+  static constexpr arg_func do_version = [](Args& args, std::string_view) {
     args.params->version = true;
     return false;
   };
 
   static constexpr std::array long_opts {
-    std::pair {""sv, noop},
-    std::pair {"files-with-matches"sv, do_lflag},
-    std::pair {"help"sv, do_hflag},
-    std::pair {"long-lines"sv, do_llflag},
-    std::pair {"version"sv, do_version},
+    std::tuple {""sv, noop, false},
+    std::tuple {"after-context"sv, do_aflag, true},
+    std::tuple {"before-context"sv, do_bflag, true},
+    std::tuple {"context"sv, do_cflag, true},
+    std::tuple {"files-with-matches"sv, do_lflag, false},
+    std::tuple {"help"sv, do_hflag, false},
+    std::tuple {"long-lines"sv, do_llflag, false},
+    std::tuple {"version"sv, do_version, false},
   };
 
   static constexpr std::array short_opts {
-    std::pair {'h', do_hflag},
-    std::pair {'l', do_lflag},
+    std::tuple {'A', do_aflag, true},
+    std::tuple {'B', do_bflag, true},
+    std::tuple {'C', do_cflag, true},
+    std::tuple {'h', do_hflag, false},
+    std::tuple {'l', do_lflag, false},
   };
 
-  static constexpr bool parse_long_opt(Args& args, std::string_view opt) {
-    auto it = std::lower_bound(
+  static constexpr int parse_long_opt(Args& args, std::string_view opt,
+                                       std::string_view peek) {
+    int ret = 1;
+    const auto it = std::lower_bound(
         std::begin(long_opts), std::end(long_opts), opt,
         [](auto p, auto o) {
-          return p.first < o;
+          return std::get<0>(p) < o;
         });
-    if (it != std::end(long_opts) && it->first == opt) {
-      return it->second(args);
+    if (it != std::end(long_opts)) {
+      if (std::get<2>(*it)) {
+        const auto eq = opt.find('=');
+        if (eq != opt.npos) {
+          peek = std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
+          opt.remove_suffix(opt.size() - eq);
+        }
+        else {
+          ret = 2;
+        }
+        if (!peek.size()) {
+          args.params = std::unexpected{
+              Error{std::format("missing arg for --{}", opt)}};
+          return 0;
+        }
+      }
+      if (std::get<0>(*it) == opt) {
+        return std::get<1>(*it)(args, peek) ? ret : 0;
+      }
     }
     args.params = std::unexpected{
         Error{std::format("unrecognized option --{}", opt)}};
-    return false;
+    return 0;
   }
 
-  static constexpr bool parse_short_opts(Args& args, std::string_view opts) {
-    for (auto c: opts) {
-      auto it = std::lower_bound(
+  static constexpr int parse_short_opts(Args& args, std::string_view opts,
+                                         std::string_view peek) {
+    int ret = 1;
+    while (opts.size()) {
+      const auto c = *std::begin(opts);
+      opts.remove_prefix(1);
+      const auto it = std::lower_bound(
           std::begin(short_opts), std::end(short_opts), c,
           [](auto p, auto c) {
-            return p.first < c;
+            return std::get<0>(p) < c;
           });
-      if (it != std::end(short_opts) && it->first == c) {
-        if (!it->second(args)) {
-          return false;
+      if (it != std::end(short_opts) && c == std::get<0>(*it)) {
+        if (std::get<2>(*it)) {
+          if (opts.size()) {
+            peek = opts;
+            opts = std::string_view();
+          }
+          else if (!peek.size()) {
+            args.params = std::unexpected{
+                Error{std::format("missing arg for -{}", c)}};
+            return 0;
+          }
+          else {
+            ret = 2;
+          }
+        }
+        if (!std::get<1>(*it)(args, peek)) {
+          return 0;
         }
       }
       else {
         args.params = std::unexpected{
             Error{std::format("invalid option -{}", c)}};
-        return false;
+        return 0;
       }
     }
-    return true;
+    return ret;
   }
 
   static Args parse_args(int argc, char const* argv[]) {
@@ -131,24 +203,29 @@ struct ArgParser {
       }
     }
     while (argv < postOpts) {
-      std::string_view arg(*argv);
+      std::string_view arg(*argv), peek;
+      if (argc > 1) {
+        peek = std::string_view(*(argv + 1));
+      }
       if (!arg.starts_with('-')) {
         std::swap(*argv, *--postOpts);
         continue;
       }
       arg.remove_prefix(1);
+      int res;
       if (!arg.starts_with('-')) {
-        if (!parse_short_opts(ret, arg)) {
-          break;
-        }
+        res = parse_short_opts(ret, arg, peek);
       }
       else {
         arg.remove_prefix(1);
-        if (!parse_long_opt(ret, arg)) {
-          break;
-        }
+        res = parse_long_opt(ret, arg, peek);
       }
-      ++argv; --argc;
+      if (!res) {
+        break;
+      }
+      assert(res <= argc);
+      argv += res;
+      argc -= res;
     }
     if (!ret.params.has_value() || ret.params->hflag || ret.params->version) {
       return ret;
@@ -180,6 +257,12 @@ struct ArgParser {
       "Uses the re2 regular expression library.\n\n"
 
       "Options:\n"
+#if 0
+      "  -A --after-context <num> Show num lines of context after each match\n"
+      "  -B --before-context <num>\n"
+      "                           Show num lines of context before each match\n"
+      "  -C --context <num>       Show num lines before and after each match\n"
+#endif
       "  -l --files-with-matches  Only print filenames that contain matches\n"
       "                           (don't print the matching lines)\n"
       "     --long-lines          Print long lines (default truncates to ~2k)\n"
