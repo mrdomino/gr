@@ -1,5 +1,3 @@
-#include <cmath>
-
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -323,7 +321,7 @@ class SearchJob : public Job {
       auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
         matches.emplace_back(line, text, end != text.size());
-        maxWidth = std::ceil(std::log10(line + 1));
+        maxWidth = calcWidth(line);
       }
     };
     while (view.size()) {
@@ -395,6 +393,31 @@ class SearchJob : public Job {
     const auto ret = ellipses[state.params.stdout_is_tty];
     return std::string_view(
         reinterpret_cast<const char*>(ret.data()), ret.size());
+  }
+
+  size_t calcWidth(size_t n) {
+    if (n < 10) {
+      return 1;
+    }
+    if (n < 100) {
+      return 2;
+    }
+    if (n < 1000) {
+      return 3;
+    }
+    if (n < 10000) {
+      return 4;
+    }
+    if (n < 100000) {
+      return 5;
+    }
+    if (n < 1000000) {
+      return 6;
+    }
+    if (n < 10000000) {
+      return 7;
+    }
+    return 8;
   }
 
   std::string pretty_path() const {
