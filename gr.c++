@@ -8,6 +8,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -21,6 +22,8 @@
 #include "job.h"
 
 namespace fs = std::filesystem;
+
+using namespace std::string_view_literals;
 
 #define FWD(x) std::forward<decltype(x)>(x)
 
@@ -67,11 +70,11 @@ struct ArgParser {
   };
 
   static constexpr std::array long_opts {
-    std::pair {"", noop},
-    std::pair {"files-with-matches", do_lflag},
-    std::pair {"help", do_hflag},
-    std::pair {"long-lines", do_llflag},
-    std::pair {"version", do_version},
+    std::pair {""sv, noop},
+    std::pair {"files-with-matches"sv, do_lflag},
+    std::pair {"help"sv, do_hflag},
+    std::pair {"long-lines"sv, do_llflag},
+    std::pair {"version"sv, do_version},
   };
 
   static constexpr std::array short_opts {
@@ -122,7 +125,7 @@ struct ArgParser {
     int postOpts = argc;
     int postDash = argc;
     for (auto it = argv; it < argv + argc; ++it) {
-      if (std::string_view(*it) == "--") {
+      if (*it == "--"sv) {
         postDash = it - argv + 1;
         postOpts = it - argv + 1;
         break;
@@ -518,7 +521,7 @@ int main(int const argc, char const* argv[]) {
   }
   const auto nThreads = std::thread::hardware_concurrency();
   auto state = GlobalState{params, SyncedRe(params.pattern), {}};
-  auto paths = params.paths.value_or(std::vector<std::string_view>{"."});
+  auto paths = params.paths.value_or(std::vector{"."sv});
   for (auto path: std::move(paths)) {
     state.queue.push(std::make_unique<AddPathsJob>(state, path));
   }
