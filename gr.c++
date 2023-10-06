@@ -122,19 +122,18 @@ struct ArgParser {
     ret.argv0 = argv[0];
     ++argv; --argc;
     ret.params.emplace();
-    int postOpts = argc;
-    int postDash = argc;
+    auto postOpts = argv + argc;
+    auto postDash = argv + argc;
     for (auto it = argv; it < argv + argc; ++it) {
       if (*it == "--"sv) {
-        postDash = it - argv + 1;
-        postOpts = it - argv + 1;
+        postOpts = postDash = it + 1;
         break;
       }
     }
-    for (auto it = argv; it < argv + postOpts;) {
-      std::string_view arg(*it);
+    while (argv < postOpts) {
+      std::string_view arg(*argv);
       if (!arg.starts_with('-')) {
-        std::swap(*it, *(argv + --postOpts));
+        std::swap(*argv, *--postOpts);
         continue;
       }
       arg.remove_prefix(1);
@@ -149,13 +148,12 @@ struct ArgParser {
           break;
         }
       }
-      ++it;
+      ++argv; --argc;
     }
     if (!ret.params.has_value() || ret.params->hflag || ret.params->version) {
       return ret;
     }
-    std::reverse(argv + postOpts, argv + postDash);
-    argv += postOpts; argc -= postOpts;
+    std::reverse(postOpts, postDash);
     if (!argc) {
       ret.params = std::unexpected{Error{"missing pattern"}};
       return ret;
