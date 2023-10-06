@@ -1,6 +1,7 @@
 #include <cmath>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <expected>
 #include <filesystem>
@@ -39,7 +40,7 @@ struct Params {
   bool hflag = false;
   bool lflag = false;
   bool llflag = false;
-  bool version_flag = false;
+  bool version = false;
 };
 
 struct Args {
@@ -47,55 +48,125 @@ struct Args {
   std::expected<Params, Error> params;
 };
 
-Args parse_args(int const argc, char const* const argv[]) {
-  Args ret;
-  ret.argv0 = argv[0];
-  Params params;
-  bool parsingArgs = true;
-  bool foundPattern = false;
-  std::vector<std::string_view> paths;
-  for (auto it = argv + 1; it != argv + argc; ++it) {
-    std::string_view arg(*it);
-    if (parsingArgs) {
-      if (arg == "-l" || arg == "--files-with-matches") {
-        params.lflag = true;
-        continue;
-      }
-      if (arg == "--long-lines") {
-        params.llflag = true;
-        continue;
-      }
-      if (arg == "-h" || arg == "--help") {
-        params.hflag = true;
-        continue;
-      }
-      if (arg == "--version") {
-        params.version_flag = true;
-        continue;
-      }
-      if (arg == "--") {
-        parsingArgs = false;
-        continue;
-      }
+struct ArgParser {
+  using arg_func = bool (*)(Args&);
+  static constexpr arg_func noop = [](Args&) { return true; };
+  static constexpr arg_func do_hflag = [](Args& args) {
+    args.params->hflag = true;
+    return false;
+  };
+  static constexpr arg_func do_lflag = [](Args& args) {
+    args.params->lflag = true;
+    return true;
+  };
+  static constexpr arg_func do_llflag = [](Args& args) {
+    args.params->llflag = true;
+    return true;
+  };
+  static constexpr arg_func do_version = [](Args& args) {
+    args.params->version = true;
+    return false;
+  };
+
+  static constexpr std::array long_opts {
+    std::pair {"", noop},
+    std::pair {"files-with-matches", do_lflag},
+    std::pair {"help", do_hflag},
+    std::pair {"long-lines", do_llflag},
+    std::pair {"version", do_version},
+  };
+
+  static constexpr std::array short_opts {
+    std::pair {'h', do_hflag},
+    std::pair {'l', do_lflag},
+  };
+
+  static constexpr bool parse_long_opt(Args& args, std::string_view opt) {
+    auto it = std::lower_bound(
+        std::begin(long_opts), std::end(long_opts), opt,
+        [](auto p, auto o) {
+          return p.first < o;
+        });
+    if (it != std::end(long_opts) && it->first == opt) {
+      return it->second(args);
     }
-    if (!foundPattern) {
-      params.pattern = arg;
-      foundPattern = true;
-      continue;
-    }
-    paths.push_back(arg);
+    args.params = std::unexpected{
+        Error{std::format("unrecognized option --{}", opt)}};
+    return false;
   }
-  params.stdout_is_tty = isatty(fileno(stdout));
-  if (!foundPattern && !params.hflag && !params.version_flag) {
-    ret.params = std::unexpected{Error{"Missing pattern"}};
+
+  static constexpr bool parse_short_opts(Args& args, std::string_view opts) {
+    for (auto c: opts) {
+      auto it = std::lower_bound(
+          std::begin(short_opts), std::end(short_opts), c,
+          [](auto p, auto c) {
+            return p.first < c;
+          });
+      if (it != std::end(short_opts) && it->first == c) {
+        if (!it->second(args)) {
+          return false;
+        }
+      }
+      else {
+        args.params = std::unexpected{
+            Error{std::format("invalid option -{}", c)}};
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static Args parse_args(int argc, char const* argv[]) {
+    Args ret;
+    ret.argv0 = argv[0];
+    ++argv; --argc;
+    ret.params.emplace();
+    int postOpts = argc;
+    int postDash = argc;
+    for (auto it = argv; it < argv + argc; ++it) {
+      if (std::string_view(*it) == "--") {
+        postDash = it - argv + 1;
+        postOpts = it - argv + 1;
+        break;
+      }
+    }
+    for (auto it = argv; it < argv + postOpts;) {
+      std::string_view arg(*it);
+      if (!arg.starts_with('-')) {
+        std::swap(*it, *(argv + --postOpts));
+        continue;
+      }
+      arg.remove_prefix(1);
+      if (!arg.starts_with('-')) {
+        if (!parse_short_opts(ret, arg)) {
+          break;
+        }
+      }
+      else {
+        arg.remove_prefix(1);
+        if (!parse_long_opt(ret, arg)) {
+          break;
+        }
+      }
+      ++it;
+    }
+    if (!ret.params.has_value() || ret.params->hflag || ret.params->version) {
+      return ret;
+    }
+    std::reverse(argv + postOpts, argv + postDash);
+    argv += postOpts; argc -= postOpts;
+    if (!argc) {
+      ret.params = std::unexpected{Error{"missing pattern"}};
+      return ret;
+    }
+    ret.params->pattern = *argv++; --argc;
+    if (argc) {
+      ret.params->paths.emplace(argv, argv + argc);
+    }
+    ret.params->stdout_is_tty = isatty(fileno(stdout));
     return ret;
   }
-  if (paths.size()) {
-    params.paths = std::move(paths);
-  }
-  ret.params = std::move(params);
-  return ret;
-}
+};
 
 [[noreturn]] void usage(Args&& args) {
   args.params.transform_error([argv0=args.argv0](auto&& e) {
@@ -413,13 +484,13 @@ struct JobRunner {
   WorkQueue& queue;
 };
 
-int main(int const argc, char const* const argv[]) {
-  auto args = parse_args(argc, argv);
+int main(int const argc, char const* argv[]) {
+  auto args = ArgParser::parse_args(argc, argv);
   if (!args.params.has_value() || args.params->hflag) {
     usage(std::move(args));
   }
   auto& params = args.params.value();
-  if (params.version_flag) {
+  if (params.version) {
     version();
   }
   const auto nThreads = std::thread::hardware_concurrency();
