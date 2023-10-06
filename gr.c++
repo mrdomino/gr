@@ -282,13 +282,12 @@ class SearchJob : public Job {
 
  private:
   void run_unchecked() {
-    std::unique_ptr<char[]> contents;
     auto fs = std::fstream(path, std::ios_base::in);
     fs.exceptions(fs.failbit | fs.badbit);
     fs.seekg(0, std::ios_base::end);
     const size_t len = fs.tellg();
     fs.seekg(0);
-    contents = std::make_unique_for_overwrite<char[]>(len);
+    const auto contents = std::make_unique_for_overwrite<char[]>(len);
     const auto pre_len = std::min(512uz, len);
     fs.read(contents.get(), pre_len);
     if (is_binary(std::string_view(contents.get(), pre_len))) {
