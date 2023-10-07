@@ -85,6 +85,8 @@ struct ArgParser {
     do_lflag,
   };
 
+  // Guaranteed to populate opts.argv0, even if an exception is thrown.
+  //
   static void parse_args(const int argc, char const* argv[], Opts& opts);
 };
 
