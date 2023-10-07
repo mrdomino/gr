@@ -10,6 +10,8 @@ It's written to the defaults I'd prefer — e.g. no colors, but uses bold
 when outputting to a tty. Some light effort is made to be UTF8-aware
 (and RE2 is itself UTF8-aware), but there are probably bugs.
 
+<img width="458" alt="a few example invocations of gr showing before/after context, listing filenames, and nonzero exit status for failed matches" src="https://github.com/mrdomino/gr/assets/23019/950b3bf7-38ce-4d85-b2f6-b154cd3c3b58">
+
 ## Installing
 
 Edit the Makefile to suit your platform. Make sure that your `CPATH` and
