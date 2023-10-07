@@ -65,6 +65,11 @@ class SyncedRe {
       : pattern(std::move(pattern)), options(options) {}
 
   operator const re2::RE2&() const {
+    init();
+    return *expr;
+  }
+
+  inline void init() const {  // must be const since it's called from ^
     std::call_once(compile_expr, [this]{
       expr = std::make_unique<re2::RE2>(to_absl(pattern), options);
       if (!expr->ok()) {
@@ -73,7 +78,6 @@ class SyncedRe {
         exit(2);
       }
     });
-    return *expr;
   }
 
  private:
@@ -95,12 +99,7 @@ class CompileReJob : public Job {
   CompileReJob(const GlobalState& state): state(state) {}
 
   void operator()() override {
-    // Just observe the expression to trigger the call_once. The abort() should
-    // be unreachable, and is there to try to prevent this from being optimized
-    // out.
-    if (!static_cast<const re2::RE2&>(state.expr).ok()) {
-      abort();
-    }
+    state.expr.init();
   }
 
  private:
