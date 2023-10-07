@@ -1,9 +1,9 @@
 #include "opts.h"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <iostream>
-
-#include <unistd.h>
 
 #include "io.h"
 
@@ -32,8 +32,7 @@ static_assert(
       "     --long-lines          Print long lines (default truncates to ~2k)\n"
       "  -Q --literal             Match pattern as literal, not regexp\n"
       "  -h --help                Print this usage message and exit.\n"
-      "     --version             Print the program version.\n"
-  );
+      "     --version             Print the program version.");
   exit(2);
 }
 
@@ -124,7 +123,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
         ++optind;
         opt.remove_prefix(1);
         auto eq = opt.find('=');
-        auto arg = [=]{
+        auto arg = [=] {
           if (eq != opt.npos) {
             return std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
           }

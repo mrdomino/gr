@@ -1,11 +1,11 @@
 #pragma once
 
-#include <cassert>
-
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <utility>
 
 class WorkQueue;
 

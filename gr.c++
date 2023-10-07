@@ -1,7 +1,10 @@
-#include <cstddef>
+#include <absl/strings/string_view.h>
+#include <re2/re2.h>
+#include <unistd.h>
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <exception>
 #include <filesystem>
@@ -14,11 +17,6 @@
 #include <thread>
 #include <utility>
 #include <vector>
-
-#include <unistd.h>
-
-#include <absl/strings/string_view.h>
-#include <re2/re2.h>
 
 #include "opts.h"
 #include "io.h"
@@ -96,7 +94,7 @@ struct GlobalState {
 
 class CompileReJob : public Job {
  public:
-  CompileReJob(const GlobalState& state): state(state) {}
+  explicit CompileReJob(const GlobalState& state): state(state) {}
 
   void operator()() override {
     state.expr.init();
@@ -369,7 +367,7 @@ class AddPathsJob : public Job {
 };
 
 struct JobRunner {
-  JobRunner(WorkQueue& queue): queue(queue) {}
+  explicit JobRunner(WorkQueue& queue): queue(queue) {}
 
   void operator()() {
     queue.runUntilEmpty();

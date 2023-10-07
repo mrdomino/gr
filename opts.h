@@ -1,9 +1,11 @@
-#include <cstdint>
+#pragma once
 
 #include <array>
 #include <charconv>
+#include <cstdint>
 #include <format>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <variant>
