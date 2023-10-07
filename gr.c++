@@ -15,6 +15,7 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <unistd.h>
@@ -54,69 +55,63 @@ struct Params {
 };
 
 struct ArgParser {
-  using arg_func = bool (*)(Params&, std::string_view);
-  static constexpr arg_func noop = [](Params&, std::string_view) {
-    return true;
-  };
+  using opt_func = void (*)(Params&);
+  using arg_func = void (*)(Params&, std::string_view);
+  using func = std::variant<opt_func, arg_func>;
   static constexpr auto read_int = [](auto& value, std::string_view arg) {
     auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
                                      value);
     if (ec != std::errc() || ptr != arg.data() + arg.size()) {
-      throw ArgumentError{std::format("invalid number: {}", arg)};
+      throw ArgumentError{std::format("invalid number: '{}'", arg)};
     }
-    return true;
   };
-  static constexpr arg_func do_aflag = [](Params& p,
-                                          std::string_view arg) {
-    return read_int(p.after_context, arg);
+  static constexpr arg_func do_aflag = [](Params& p, std::string_view arg) {
+    read_int(p.after_context, arg);
   };
   static constexpr arg_func do_bflag = [](Params& p, std::string_view arg) {
-    return read_int(p.before_context, arg);
+    read_int(p.before_context, arg);
   };
   static constexpr arg_func do_cflag = [](Params& p, std::string_view arg) {
-    if (!read_int(p.after_context, arg)) {
-      return false;
-    }
+    read_int(p.after_context, arg);
     p.before_context = p.after_context;
-    return true;
   };
-  static constexpr arg_func do_hflag = [](Params& p, std::string_view) {
+  static constexpr opt_func do_hflag = [](Params& p) {
     p.hflag = true;
-    return false;
   };
-  static constexpr arg_func do_lflag = [](Params& p, std::string_view) {
+  static constexpr opt_func do_lflag = [](Params& p) {
     p.lflag = true;
-    return true;
   };
-  static constexpr arg_func do_llflag = [](Params& p, std::string_view) {
+  static constexpr opt_func do_llflag = [](Params& p) {
     p.llflag = true;
-    return true;
   };
-  static constexpr arg_func do_version = [](Params& p, std::string_view) {
+  static constexpr opt_func do_version = [](Params& p) {
     p.version = true;
-    return false;
   };
 
   static constexpr std::array long_opts {
-    std::tuple {""sv, noop, false},
-    std::tuple {"after-context"sv, do_aflag, true},
-    std::tuple {"before-context"sv, do_bflag, true},
-    std::tuple {"context"sv, do_cflag, true},
-    std::tuple {"files-with-matches"sv, do_lflag, false},
-    std::tuple {"help"sv, do_hflag, false},
-    std::tuple {"long-lines"sv, do_llflag, false},
-    std::tuple {"version"sv, do_version, false},
+    std::pair {"after-context"sv, func(do_aflag)},
+    std::pair {"before-context"sv, func(do_bflag)},
+    std::pair {"context"sv, func(do_cflag)},
+    std::pair {"files-with-matches"sv, func(do_lflag)},
+    std::pair {"help"sv, func(do_hflag)},
+    std::pair {"long-lines"sv, func(do_llflag)},
+    std::pair {"version"sv, func(do_version)},
   };
 
   static constexpr std::string_view short_opt_chars { "ABChl" };
-  static constexpr std::array<std::pair<arg_func, bool>, short_opt_chars.size()>
-  short_opts {
-    std::pair { do_aflag, true },
-    std::pair { do_bflag, true },
-    std::pair { do_cflag, true },
-    std::pair { do_hflag, false },
-    std::pair { do_lflag, false },
+  static constexpr std::array<func, short_opt_chars.size()> short_opts {
+    do_aflag,
+    do_bflag,
+    do_cflag,
+    do_hflag,
+    do_lflag,
   };
+  static_assert(
+      std::all_of(
+          std::begin(short_opts), std::end(short_opts),
+          [](auto v) {
+            return std::visit([](auto&& f) { return f != nullptr; }, v);
+          }), "missing short_opts func");
 
   static constexpr auto lookup_long_opt(std::string_view opt) {
     auto it = std::lower_bound(std::begin(long_opts), std::end(long_opts),
@@ -195,6 +190,7 @@ struct ArgParser {
 
       opt.remove_prefix(1);
       if (opt.starts_with('-')) {
+        ++optind;
         opt.remove_prefix(1);
         auto eq = opt.find('=');
         auto arg = [=]{
@@ -206,22 +202,30 @@ struct ArgParser {
         if (eq != opt.npos) {
           opt.remove_suffix(opt.size() - eq);
         }
-        auto [_, func, has_arg] = lookup_long_opt(opt);
-        ++optind;
-        if (eq != opt.npos) {
-          if (!has_arg) {
-            throw ArgumentError{std::format("--{} takes no argument", opt)};
-          }
-        }
-        else if (has_arg) {
-          if (optind < argc) {
-            arg = argv[optind++];
+        auto [optopt, func] = lookup_long_opt(opt);
+        std::visit([&](auto&& f) {
+          using T = std::decay_t<decltype(f)>;
+          if constexpr (std::is_same_v<T, opt_func>) {
+            if (eq != opt.npos) {
+              throw ArgumentError{
+                  std::format("--{} takes no argument", optopt)};
+            }
+            f(params);
           }
           else {
-            throw ArgumentError{std::format("--{} requires an argument", opt)};
+            static_assert(std::is_same_v<T, arg_func>);
+            if (eq == opt.npos) {
+              if (optind < argc) {
+                arg = argv[optind++];
+              }
+              else {
+                throw ArgumentError{
+                    std::format("--{} requires argument", optopt)};
+              }
+            }
+            f(params, arg);
           }
-        }
-        func(params, arg);
+        }, func);
       }
       else {
         while (opt.size()) {
@@ -234,22 +238,27 @@ struct ArgParser {
           if (i == short_opt_chars.npos) {
             throw ArgumentError{std::format("invalid option -{}", c)};
           }
-          auto [func, has_arg] = short_opts[i];
-          std::string_view arg;
-          if (has_arg) {
-            if (opt.size()) {
-              arg = opt;
-              opt = std::string_view();
-              ++optind;
-            }
-            else if (optind == argc) {
-              throw ArgumentError{std::format("-{} requires an argument", c)};
+          auto func = short_opts[i];
+          std::visit([&](auto&& f) {
+            using T = std::decay_t<decltype(f)>;
+            if constexpr (std::is_same_v<T, opt_func>) {
+              f(params);
             }
             else {
-              arg = argv[optind++];
+              static_assert(std::is_same_v<T, arg_func>);
+              std::string_view arg;
+              if (opt.size()) {
+                std::swap(arg, opt);
+              }
+              else if (optind == argc) {
+                throw ArgumentError{std::format("-{} requires argument", c)};
+              }
+              else {
+                arg = argv[optind++];
+              }
+              f(params, arg);
             }
-          }
-          func(params, arg);
+          }, func);
         }
       }
     }
