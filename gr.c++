@@ -28,8 +28,8 @@ using namespace std::string_view_literals;
 
 #define FWD(x) std::forward<decltype(x)>(x)
 
-#define BOLD_ON "\x1b[1m"
-#define BOLD_OFF "\x1b[0m"
+constexpr std::string_view BOLD_ON { "\x1b[1m" };
+constexpr std::string_view BOLD_OFF { "\x1b[0m" };
 
 [[noreturn]] void version() {
   mPrintLn("gr version 0.1.0");
@@ -199,14 +199,14 @@ class SearchJob : public Job {
       view.remove_prefix(nl + 1);
     }
 
+    const auto bold_on = state.opts.stdout_is_tty ? BOLD_ON : ""sv;
+    const auto bold_off = state.opts.stdout_is_tty ? BOLD_OFF : ""sv;
+
     std::lock_guard lk(io_mutex);
     if (state.matched_one.test_and_set()) {
       mPrintLn("");
     }
-    if (state.opts.stdout_is_tty) {
-      mPrintLn(BOLD_ON "{}" BOLD_OFF, pretty_path());
-    }
-    else mPrintLn("{}", pretty_path());
+    mPrintLn("{}{}{}", bold_on, pretty_path(), bold_off);
     if (matches.size()) {
       auto last_line = 0uz;
       for (auto [line, text, truncated, is_context]: matches) {
@@ -215,14 +215,16 @@ class SearchJob : public Job {
           mPrintLn("--");
         }
         last_line = line;
+        static const auto ellipses = reinterpret_cast<const char*>(u8"…");
         const auto delim = is_context ? '-' : ':';
-        const auto pre_line = state.opts.stdout_is_tty && !is_context
-            ? BOLD_ON : "";
-        const auto post_line = state.opts.stdout_is_tty && !is_context
-            ? BOLD_OFF : "";
-        const auto trail = truncated ? ellipses() : "";
-        mPrintLn("{}{:{}}{}{}{}{}", pre_line, line, maxWidth, post_line, delim,
-                 text, trail);
+        const auto pre_line = is_context ? ""sv : bold_on;
+        const auto post_line = is_context ? ""sv : bold_off;
+        const auto pre_trunc = truncated ? bold_on : ""sv;
+        const auto post_trunc = truncated ? bold_off : ""sv;
+        const auto trunc = truncated ? ellipses : "";
+        mPrintLn("{}{:{}}{}{}{}{}{}{}",
+                 pre_line, line, maxWidth, post_line, delim, text, pre_trunc,
+                 trunc, post_trunc);
       }
     }
     else {
@@ -253,16 +255,6 @@ class SearchJob : public Job {
       ret.remove_suffix(i + 1);
     }
     return ret;
-  }
-
-  std::string_view ellipses() {
-    static constexpr std::array<std::u8string_view, 2> ellipses {{
-      u8"…",
-      BOLD_ON u8"…" BOLD_OFF,
-    }};
-    const auto ret = ellipses[state.opts.stdout_is_tty];
-    return std::string_view(
-        reinterpret_cast<const char*>(ret.data()), ret.size());
   }
 
   size_t calcWidth(size_t n) {
