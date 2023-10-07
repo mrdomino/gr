@@ -28,6 +28,8 @@ using namespace std::string_view_literals;
 
 #define FWD(x) std::forward<decltype(x)>(x)
 
+namespace {
+
 constexpr std::string_view BOLD_ON { "\x1b[1m" };
 constexpr std::string_view BOLD_OFF { "\x1b[0m" };
 
@@ -367,6 +369,8 @@ struct JobRunner {
 
   WorkQueue& queue;
 };
+
+}   // namespace
 
 int main(int const argc, char const* argv[]) {
   auto opts = std::make_unique<Opts>();
