@@ -179,6 +179,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
               std::string_view arg;
               if (opt.size()) {
                 std::swap(arg, opt);
+                ++optind;
               }
               else if (optind == argc) {
                 throw ArgumentError{"-{} requires argument", c};
