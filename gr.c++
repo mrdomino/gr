@@ -304,9 +304,9 @@ class SearchJob : public Job {
 
 class AddPathsJob : public Job {
  public:
-  AddPathsJob(GlobalState& state, auto&& path,
+  AddPathsJob(GlobalState& state, auto&& path, bool requested,
               std::optional<fs::file_status> ss_ = std::nullopt)
-      : state(state), path(FWD(path)), ss_(ss_) {}
+      : state(state), path(FWD(path)), requested(requested), ss_(ss_) {}
 
   void operator()() override {
     try {
@@ -325,7 +325,7 @@ class AddPathsJob : public Job {
 
  private:
   void run_unchecked() {
-    if (is_ignored()) {
+    if (!requested && is_ignored()) {
       return;
     }
     auto s = ss_.value_or(fs::status(path));
@@ -343,7 +343,7 @@ class AddPathsJob : public Job {
         auto itS = it->status();
         state.queue.push(
             std::make_unique<AddPathsJob>(
-                state, std::move(*it), std::move(itS)));
+                state, std::move(*it), false, std::move(itS)));
       }
     }
     else if (!fs::exists(s)) {
@@ -357,8 +357,9 @@ class AddPathsJob : public Job {
   }
 
   GlobalState& state;
-  fs::path path;
-  std::optional<fs::file_status> ss_;
+  const fs::path path;
+  const bool requested;
+  const std::optional<fs::file_status> ss_;
 };
 
 struct JobRunner {
@@ -394,7 +395,7 @@ int main(int const argc, char const* argv[]) {
   auto state = GlobalState{*opts, SyncedRe(opts->pattern, options), {}};
   opts.reset();
   for (const auto path: state.opts.paths.value_or(std::vector{"."sv})) {
-    state.queue.push(std::make_unique<AddPathsJob>(state, path));
+    state.queue.push(std::make_unique<AddPathsJob>(state, path, true));
   }
   state.queue.push(std::make_unique<CompileReJob>(state));
   std::vector<std::thread> threads;
