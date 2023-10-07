@@ -29,6 +29,7 @@ struct Opts {
   bool hflag = false;
   bool lflag = false;
   bool llflag = false;
+  bool qflag = false;
   bool version = false;
 };
 
@@ -53,18 +54,11 @@ struct ArgParser {
     read_int(o.after_context, arg);
     o.before_context = o.after_context;
   };
-  static constexpr opt_func do_hflag = [](Opts& o) {
-    o.hflag = true;
-  };
-  static constexpr opt_func do_lflag = [](Opts& o) {
-    o.lflag = true;
-  };
-  static constexpr opt_func do_llflag = [](Opts& o) {
-    o.llflag = true;
-  };
-  static constexpr opt_func do_version = [](Opts& o) {
-    o.version = true;
-  };
+  static constexpr opt_func do_hflag = [](Opts& o) { o.hflag = true; };
+  static constexpr opt_func do_lflag = [](Opts& o) { o.lflag = true; };
+  static constexpr opt_func do_llflag = [](Opts& o) { o.llflag = true; };
+  static constexpr opt_func do_qflag = [](Opts& o) { o.qflag = true; };
+  static constexpr opt_func do_version = [](Opts& o) { o.version = true; };
 
   static constexpr std::array long_opts {
     std::pair {"after-context"sv, func(do_aflag)},
@@ -72,15 +66,17 @@ struct ArgParser {
     std::pair {"context"sv, func(do_cflag)},
     std::pair {"files-with-matches"sv, func(do_lflag)},
     std::pair {"help"sv, func(do_hflag)},
+    std::pair {"literal"sv, func(do_qflag)},
     std::pair {"long-lines"sv, func(do_llflag)},
     std::pair {"version"sv, func(do_version)},
   };
 
-  static constexpr std::string_view short_opt_chars { "ABChl" };
+  static constexpr std::string_view short_opt_chars { "ABCQhl" };
   static constexpr std::array<func, short_opt_chars.size()> short_opts {
     do_aflag,
     do_bflag,
     do_cflag,
+    do_qflag,
     do_hflag,
     do_lflag,
   };

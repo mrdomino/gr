@@ -61,11 +61,12 @@ inline constexpr absl::string_view to_absl(std::string_view view) {
 
 class SyncedRe {
  public:
-  explicit SyncedRe(std::string_view pattern): pattern(std::move(pattern)) {}
+  explicit SyncedRe(std::string_view pattern, const RE2::Options& options)
+      : pattern(std::move(pattern)), options(options) {}
 
   operator const re2::RE2&() const {
     std::call_once(compile_expr, [this]{
-      expr = std::make_unique<re2::RE2>(to_absl(pattern));
+      expr = std::make_unique<re2::RE2>(to_absl(pattern), options);
       if (!expr->ok()) {
         mPrintLn(std::cerr, "Failed to compile regexp /{}/: {}",
                  pattern, expr->error());
@@ -76,7 +77,8 @@ class SyncedRe {
   }
 
  private:
-  mutable std::string_view pattern;
+  const std::string_view pattern;
+  const RE2::Options& options;
   mutable std::unique_ptr<re2::RE2> expr;
   mutable std::once_flag compile_expr;
 };
@@ -393,7 +395,9 @@ int main(int const argc, char const* argv[]) {
     version();
   }
   const auto nThreads = std::thread::hardware_concurrency();
-  auto state = GlobalState{*opts, SyncedRe(opts->pattern), {}};
+  auto options = RE2::Options();
+  options.set_literal(opts->qflag);
+  auto state = GlobalState{*opts, SyncedRe(opts->pattern, options), {}};
   auto paths = opts->paths.value_or(std::vector{"."sv});
   opts.reset();
   for (auto path: std::move(paths)) {

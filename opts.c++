@@ -30,6 +30,7 @@ static_assert(
       "  -l --files-with-matches  Only print filenames that contain matches\n"
       "                           (don't print the matching lines)\n"
       "     --long-lines          Print long lines (default truncates to ~2k)\n"
+      "  -Q --literal             Match pattern as literal, not regexp\n"
       "  -h --help                Print this usage message and exit.\n"
       "     --version             Print the program version.\n"
   );
