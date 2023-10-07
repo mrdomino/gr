@@ -41,7 +41,7 @@ struct ArgumentError: std::exception {
   explicit ArgumentError(auto&& reason): reason(FWD(reason)) {}
 };
 
-struct Params {
+struct Opts {
   std::string_view argv0;
   std::string_view pattern;
   std::optional<std::vector<std::string_view>> paths;
@@ -55,8 +55,8 @@ struct Params {
 };
 
 struct ArgParser {
-  using opt_func = void (*)(Params&);
-  using arg_func = void (*)(Params&, std::string_view);
+  using opt_func = void (*)(Opts&);
+  using arg_func = void (*)(Opts&, std::string_view);
   using func = std::variant<opt_func, arg_func>;
   static constexpr auto read_int = [](auto& value, std::string_view arg) {
     auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
@@ -65,27 +65,27 @@ struct ArgParser {
       throw ArgumentError{std::format("invalid number: '{}'", arg)};
     }
   };
-  static constexpr arg_func do_aflag = [](Params& p, std::string_view arg) {
-    read_int(p.after_context, arg);
+  static constexpr arg_func do_aflag = [](Opts& o, std::string_view arg) {
+    read_int(o.after_context, arg);
   };
-  static constexpr arg_func do_bflag = [](Params& p, std::string_view arg) {
-    read_int(p.before_context, arg);
+  static constexpr arg_func do_bflag = [](Opts& o, std::string_view arg) {
+    read_int(o.before_context, arg);
   };
-  static constexpr arg_func do_cflag = [](Params& p, std::string_view arg) {
-    read_int(p.after_context, arg);
-    p.before_context = p.after_context;
+  static constexpr arg_func do_cflag = [](Opts& o, std::string_view arg) {
+    read_int(o.after_context, arg);
+    o.before_context = o.after_context;
   };
-  static constexpr opt_func do_hflag = [](Params& p) {
-    p.hflag = true;
+  static constexpr opt_func do_hflag = [](Opts& o) {
+    o.hflag = true;
   };
-  static constexpr opt_func do_lflag = [](Params& p) {
-    p.lflag = true;
+  static constexpr opt_func do_lflag = [](Opts& o) {
+    o.lflag = true;
   };
-  static constexpr opt_func do_llflag = [](Params& p) {
-    p.llflag = true;
+  static constexpr opt_func do_llflag = [](Opts& o) {
+    o.llflag = true;
   };
-  static constexpr opt_func do_version = [](Params& p) {
-    p.version = true;
+  static constexpr opt_func do_version = [](Opts& o) {
+    o.version = true;
   };
 
   static constexpr std::array long_opts {
@@ -151,8 +151,8 @@ struct ArgParser {
     last_nonopt = optind;
   }
 
-  static void parse_args(const int argc, char const* argv[], Params& params) {
-    params.argv0 = *argv;
+  static void parse_args(const int argc, char const* argv[], Opts& opts) {
+    opts.argv0 = *argv;
     int optind = 1;
     int first_nonopt = 1;
     int last_nonopt = 1;
@@ -210,7 +210,7 @@ struct ArgParser {
               throw ArgumentError{
                   std::format("--{} takes no argument", optopt)};
             }
-            f(params);
+            f(opts);
           }
           else {
             static_assert(std::is_same_v<T, arg_func>);
@@ -223,7 +223,7 @@ struct ArgParser {
                     std::format("--{} requires argument", optopt)};
               }
             }
-            f(params, arg);
+            f(opts, arg);
           }
         }, func);
       }
@@ -242,7 +242,7 @@ struct ArgParser {
           std::visit([&](auto&& f) {
             using T = std::decay_t<decltype(f)>;
             if constexpr (std::is_same_v<T, opt_func>) {
-              f(params);
+              f(opts);
             }
             else {
               static_assert(std::is_same_v<T, arg_func>);
@@ -256,23 +256,23 @@ struct ArgParser {
               else {
                 arg = argv[optind++];
               }
-              f(params, arg);
+              f(opts, arg);
             }
           }, func);
         }
       }
     }
-    if (params.hflag || params.version) {
+    if (opts.hflag || opts.version) {
       return;
     }
     if (optind == argc) {
       throw ArgumentError{"missing pattern"};
     }
-    params.pattern = argv[optind++];
+    opts.pattern = argv[optind++];
     if (optind < argc) {
-      params.paths.emplace(argv + optind, argv + argc);
+      opts.paths.emplace(argv + optind, argv + argc);
     }
-    params.stdout_is_tty = isatty(fileno(stdout));
+    opts.stdout_is_tty = isatty(fileno(stdout));
   }
 };
 
@@ -349,7 +349,7 @@ class SyncedRe {
 };
 
 struct GlobalState {
-  const Params params;
+  const Opts opts;
   const SyncedRe expr;
   WorkQueue queue;
   std::atomic_flag matched_one = ATOMIC_FLAG_INIT;
@@ -413,7 +413,7 @@ class SearchJob : public Job {
       return;
     }
 
-    if (state.params.lflag) {
+    if (state.opts.lflag) {
       (void) state.matched_one.test_and_set();
       mPrintLn("{}", pretty_path());
       return;
@@ -450,13 +450,13 @@ class SearchJob : public Job {
     if (state.matched_one.test_and_set()) {
       mPrintLn("");
     }
-    if (state.params.stdout_is_tty) {
+    if (state.opts.stdout_is_tty) {
       mPrintLn(BOLD_ON "{}" BOLD_OFF, pretty_path());
     }
     else mPrintLn("{}", pretty_path());
     if (matches.size()) {
       for (auto [line, text, truncated]: matches) {
-        if (state.params.stdout_is_tty) {
+        if (state.opts.stdout_is_tty) {
           mPrint(BOLD_ON "{:{}}" BOLD_OFF ":{}", line, maxWidth, text);
         }
         else mPrint("{:{}}:{}", line, maxWidth, text);
@@ -472,7 +472,7 @@ class SearchJob : public Job {
   }
 
   std::string_view truncate_span(std::string_view view, size_t end) {
-    if (state.params.llflag || end <= 2048uz) {
+    if (state.opts.llflag || end <= 2048uz) {
       return std::string_view(view.begin(), end);
     }
     std::string_view ret(view.begin(), 2048uz);
@@ -501,7 +501,7 @@ class SearchJob : public Job {
       u8"…",
       BOLD_ON u8"…" BOLD_OFF,
     }};
-    const auto ret = ellipses[state.params.stdout_is_tty];
+    const auto ret = ellipses[state.opts.stdout_is_tty];
     return std::string_view(
         reinterpret_cast<const char*>(ret.data()), ret.size());
   }
@@ -618,23 +618,23 @@ struct JobRunner {
 };
 
 int main(int const argc, char const* argv[]) {
-  Params params;
+  Opts opts;
   try {
-    ArgParser::parse_args(argc, argv, params);
+    ArgParser::parse_args(argc, argv, opts);
   }
   catch (const ArgumentError& e) {
-    mPrintLn(std::cerr, "{}: {}", params.argv0, e.reason);
-    usage(params.argv0);
+    mPrintLn(std::cerr, "{}: {}", opts.argv0, e.reason);
+    usage(opts.argv0);
   }
-  if (params.hflag) {
-    usage(params.argv0);
+  if (opts.hflag) {
+    usage(opts.argv0);
   }
-  if (params.version) {
+  if (opts.version) {
     version();
   }
   const auto nThreads = std::thread::hardware_concurrency();
-  auto state = GlobalState{params, SyncedRe(params.pattern), {}};
-  auto paths = params.paths.value_or(std::vector{"."sv});
+  auto state = GlobalState{opts, SyncedRe(opts.pattern), {}};
+  auto paths = opts.paths.value_or(std::vector{"."sv});
   for (auto path: std::move(paths)) {
     state.queue.push(std::make_unique<AddPathsJob>(state, path));
   }
