@@ -34,7 +34,7 @@ constexpr std::string_view BOLD_ON { "\x1b[1m" };
 constexpr std::string_view BOLD_OFF { "\x1b[0m" };
 
 [[noreturn]] void version() {
-  mPrintLn("gr version 0.1.0");
+  mPrintLn("gr version 0.2.0");
   exit(0);
 }
 
