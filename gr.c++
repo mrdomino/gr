@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <charconv>
+#include <exception>
 #include <expected>
 #include <filesystem>
 #include <fstream>
@@ -33,11 +34,14 @@ using namespace std::string_view_literals;
 #define BOLD_ON "\x1b[1m"
 #define BOLD_OFF "\x1b[0m"
 
-struct Error {
+struct ArgumentError: std::exception {
   std::string reason;
+
+  explicit ArgumentError(auto&& reason): reason(FWD(reason)) {}
 };
 
 struct Params {
+  std::string_view argv0;
   std::string_view pattern;
   std::optional<std::vector<std::string_view>> paths;
   bool stdout_is_tty = false;
@@ -49,52 +53,47 @@ struct Params {
   bool version = false;
 };
 
-struct Args {
-  std::string_view argv0;
-  std::expected<Params, Error> params;
-};
-
 struct ArgParser {
-  using arg_func = bool (*)(Args&, std::string_view);
-  static constexpr arg_func noop = [](Args&, std::string_view) { return true; };
-  static constexpr auto read_int = [](Args& args, auto& value,
-                                      std::string_view arg) {
+  using arg_func = bool (*)(Params&, std::string_view);
+  static constexpr arg_func noop = [](Params&, std::string_view) {
+    return true;
+  };
+  static constexpr auto read_int = [](auto& value, std::string_view arg) {
     auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
                                      value);
     if (ec != std::errc() || ptr != arg.data() + arg.size()) {
-      args.params = std::unexpected{
-          Error{std::format("Invalid number: {}", arg)}};
-      return false;
+      throw ArgumentError{std::format("invalid number: {}", arg)};
     }
     return true;
   };
-  static constexpr arg_func do_aflag = [](Args& args, std::string_view arg) {
-    return read_int(args, args.params->after_context, arg);
+  static constexpr arg_func do_aflag = [](Params& p,
+                                          std::string_view arg) {
+    return read_int(p.after_context, arg);
   };
-  static constexpr arg_func do_bflag = [](Args& args, std::string_view arg) {
-    return read_int(args, args.params->before_context, arg);
+  static constexpr arg_func do_bflag = [](Params& p, std::string_view arg) {
+    return read_int(p.before_context, arg);
   };
-  static constexpr arg_func do_cflag = [](Args& args, std::string_view arg) {
-    if (!read_int(args, args.params->after_context, arg)) {
+  static constexpr arg_func do_cflag = [](Params& p, std::string_view arg) {
+    if (!read_int(p.after_context, arg)) {
       return false;
     }
-    args.params->before_context = args.params->after_context;
+    p.before_context = p.after_context;
     return true;
   };
-  static constexpr arg_func do_hflag = [](Args& args, std::string_view) {
-    args.params->hflag = true;
+  static constexpr arg_func do_hflag = [](Params& p, std::string_view) {
+    p.hflag = true;
     return false;
   };
-  static constexpr arg_func do_lflag = [](Args& args, std::string_view) {
-    args.params->lflag = true;
+  static constexpr arg_func do_lflag = [](Params& p, std::string_view) {
+    p.lflag = true;
     return true;
   };
-  static constexpr arg_func do_llflag = [](Args& args, std::string_view) {
-    args.params->llflag = true;
+  static constexpr arg_func do_llflag = [](Params& p, std::string_view) {
+    p.llflag = true;
     return true;
   };
-  static constexpr arg_func do_version = [](Args& args, std::string_view) {
-    args.params->version = true;
+  static constexpr arg_func do_version = [](Params& p, std::string_view) {
+    p.version = true;
     return false;
   };
 
@@ -109,147 +108,167 @@ struct ArgParser {
     std::tuple {"version"sv, do_version, false},
   };
 
-  static constexpr std::array short_opts {
-    std::tuple {'A', do_aflag, true},
-    std::tuple {'B', do_bflag, true},
-    std::tuple {'C', do_cflag, true},
-    std::tuple {'h', do_hflag, false},
-    std::tuple {'l', do_lflag, false},
+  static constexpr std::string_view short_opt_chars { "ABChl" };
+  static constexpr std::array<std::pair<arg_func, bool>, short_opt_chars.size()>
+  short_opts {
+    std::pair { do_aflag, true },
+    std::pair { do_bflag, true },
+    std::pair { do_cflag, true },
+    std::pair { do_hflag, false },
+    std::pair { do_lflag, false },
   };
 
-  static constexpr int parse_long_opt(Args& args, std::string_view opt,
-                                       std::string_view peek) {
-    int ret = 1;
-    const auto it = std::lower_bound(
-        std::begin(long_opts), std::end(long_opts), opt,
-        [](auto p, auto o) {
-          return std::get<0>(p) < o;
-        });
-    if (it != std::end(long_opts)) {
-      if (std::get<2>(*it)) {
-        const auto eq = opt.find('=');
+  static constexpr auto lookup_long_opt(std::string_view opt) {
+    auto it = std::lower_bound(std::begin(long_opts), std::end(long_opts),
+                               opt,
+                               [](auto a, auto b) {
+                                 return std::get<0>(a) < b;
+                               });
+    if (it != std::end(long_opts) && std::get<0>(*it).starts_with(opt)) {
+      if (it + 1 != std::end(long_opts)
+          && std::get<0>(*(it + 1)).starts_with(opt)) {
+        throw ArgumentError{std::format("ambiguous option --{}", opt)};
+      }
+      return *it;
+    }
+    throw ArgumentError{std::format("unrecognized option --{}", opt)};
+  }
+
+  static void swap_portions(char const* argv[], int& first_nonopt,
+                            int& last_nonopt, int optind) {
+    int bottom = first_nonopt;
+    int middle = last_nonopt;
+    int top = optind;
+
+    while (top > middle && middle > bottom) {
+      if (top - middle > middle - bottom) {
+        std::swap_ranges(argv + bottom, argv + middle,
+                         argv + top - (middle - bottom));
+        top -= (middle - bottom);
+      }
+      else {
+        std::swap_ranges(argv + bottom, argv + bottom + (top - middle),
+                         argv + middle);
+        bottom += (top - middle);
+      }
+    }
+    first_nonopt += (optind - last_nonopt);
+    last_nonopt = optind;
+  }
+
+  static void parse_args(const int argc, char const* argv[], Params& params) {
+    params.argv0 = *argv;
+    int optind = 1;
+    int first_nonopt = 1;
+    int last_nonopt = 1;
+    while (true) {
+      if (first_nonopt != last_nonopt && last_nonopt != optind) {
+        swap_portions(argv, first_nonopt, last_nonopt, optind);
+      }
+      else if (last_nonopt != optind) {
+        first_nonopt = optind;
+      }
+      std::string_view opt;
+      while (optind < argc && !(opt = argv[optind]).starts_with('-')) {
+        ++optind;
+      }
+      last_nonopt = optind;
+
+      if (optind != argc && opt == "--") {
+        ++optind;
+        if (first_nonopt != last_nonopt && last_nonopt != optind) {
+          swap_portions(argv, first_nonopt, last_nonopt, optind);
+        }
+        else if (first_nonopt == last_nonopt) {
+          first_nonopt = optind;
+        }
+        last_nonopt = argc;
+        optind = argc;
+      }
+
+      if (optind == argc) {
+        if (first_nonopt != last_nonopt) {
+          optind = first_nonopt;
+        }
+        break;
+      }
+
+      opt.remove_prefix(1);
+      if (opt.starts_with('-')) {
+        opt.remove_prefix(1);
+        auto eq = opt.find('=');
+        auto arg = [=]{
+          if (eq != opt.npos) {
+            return std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
+          }
+          return std::string_view();
+        }();
         if (eq != opt.npos) {
-          peek = std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
           opt.remove_suffix(opt.size() - eq);
         }
-        else {
-          ret = 2;
-        }
-        if (!peek.size()) {
-          args.params = std::unexpected{
-              Error{std::format("missing arg for --{}", opt)}};
-          return 0;
-        }
-      }
-      if (std::get<0>(*it) == opt) {
-        return std::get<1>(*it)(args, peek) ? ret : 0;
-      }
-    }
-    args.params = std::unexpected{
-        Error{std::format("unrecognized option --{}", opt)}};
-    return 0;
-  }
-
-  static constexpr int parse_short_opts(Args& args, std::string_view opts,
-                                         std::string_view peek) {
-    int ret = 1;
-    while (opts.size()) {
-      const auto c = *std::begin(opts);
-      opts.remove_prefix(1);
-      const auto it = std::lower_bound(
-          std::begin(short_opts), std::end(short_opts), c,
-          [](auto p, auto c) {
-            return std::get<0>(p) < c;
-          });
-      if (it != std::end(short_opts) && c == std::get<0>(*it)) {
-        if (std::get<2>(*it)) {
-          if (opts.size()) {
-            peek = opts;
-            opts = std::string_view();
+        auto [_, func, has_arg] = lookup_long_opt(opt);
+        ++optind;
+        if (eq != opt.npos) {
+          if (!has_arg) {
+            throw ArgumentError{std::format("--{} takes no argument", opt)};
           }
-          else if (!peek.size()) {
-            args.params = std::unexpected{
-                Error{std::format("missing arg for -{}", c)}};
-            return 0;
+        }
+        else if (has_arg) {
+          if (optind < argc) {
+            arg = argv[optind++];
           }
           else {
-            ret = 2;
+            throw ArgumentError{std::format("--{} requires an argument", opt)};
           }
         }
-        if (!std::get<1>(*it)(args, peek)) {
-          return 0;
+        func(params, arg);
+      }
+      else {
+        while (opt.size()) {
+          const auto c = opt.front();
+          const auto i = short_opt_chars.find(c);
+          opt.remove_prefix(1);
+          if (!opt.size()) {
+            ++optind;
+          }
+          if (i == short_opt_chars.npos) {
+            throw ArgumentError{std::format("invalid option -{}", c)};
+          }
+          auto [func, has_arg] = short_opts[i];
+          std::string_view arg;
+          if (has_arg) {
+            if (opt.size()) {
+              arg = opt;
+              opt = std::string_view();
+              ++optind;
+            }
+            else if (optind == argc) {
+              throw ArgumentError{std::format("-{} requires an argument", c)};
+            }
+            else {
+              arg = argv[optind++];
+            }
+          }
+          func(params, arg);
         }
       }
-      else {
-        args.params = std::unexpected{
-            Error{std::format("invalid option -{}", c)}};
-        return 0;
-      }
     }
-    return ret;
-  }
-
-  static Args parse_args(int argc, char const* argv[]) {
-    Args ret;
-    ret.argv0 = argv[0];
-    ++argv; --argc;
-    ret.params.emplace();
-    auto postOpts = argv + argc;
-    auto postDash = argv + argc;
-    for (auto it = argv; it < argv + argc; ++it) {
-      if (*it == "--"sv) {
-        postOpts = postDash = it + 1;
-        break;
-      }
+    if (params.hflag || params.version) {
+      return;
     }
-    while (argv < postOpts) {
-      std::string_view arg(*argv), peek;
-      if (argc > 1) {
-        peek = std::string_view(*(argv + 1));
-      }
-      if (!arg.starts_with('-')) {
-        std::swap(*argv, *--postOpts);
-        continue;
-      }
-      arg.remove_prefix(1);
-      int res;
-      if (!arg.starts_with('-')) {
-        res = parse_short_opts(ret, arg, peek);
-      }
-      else {
-        arg.remove_prefix(1);
-        res = parse_long_opt(ret, arg, peek);
-      }
-      if (!res) {
-        break;
-      }
-      assert(res <= argc);
-      argv += res;
-      argc -= res;
+    if (optind == argc) {
+      throw ArgumentError{"missing pattern"};
     }
-    if (!ret.params.has_value() || ret.params->hflag || ret.params->version) {
-      return ret;
+    params.pattern = argv[optind++];
+    if (optind < argc) {
+      params.paths.emplace(argv + optind, argv + argc);
     }
-    std::reverse(postOpts, postDash);
-    if (!argc) {
-      ret.params = std::unexpected{Error{"missing pattern"}};
-      return ret;
-    }
-    ret.params->pattern = *argv++; --argc;
-    if (argc) {
-      ret.params->paths.emplace(argv, argv + argc);
-    }
-    ret.params->stdout_is_tty = isatty(fileno(stdout));
-    return ret;
+    params.stdout_is_tty = isatty(fileno(stdout));
   }
 };
 
-[[noreturn]] void usage(Args&& args) {
-  args.params.transform_error([argv0=args.argv0](auto&& e) {
-    mPrintLn(std::cerr, "{}: {}", argv0, e.reason);
-    return e;
-  });
-  mPrintLn(std::cerr, "usage: {} [options] <pattern> [path ...]", args.argv0);
+[[noreturn]] void usage(std::string_view argv0) {
+  mPrintLn(std::cerr, "usage: {} [options] <pattern> [path ...]", argv0);
   mPrintLn(
       std::cerr,
 
@@ -590,11 +609,17 @@ struct JobRunner {
 };
 
 int main(int const argc, char const* argv[]) {
-  auto args = ArgParser::parse_args(argc, argv);
-  if (!args.params.has_value() || args.params->hflag) {
-    usage(std::move(args));
+  Params params;
+  try {
+    ArgParser::parse_args(argc, argv, params);
   }
-  auto& params = args.params.value();
+  catch (const ArgumentError& e) {
+    mPrintLn(std::cerr, "{}: {}", params.argv0, e.reason);
+    usage(params.argv0);
+  }
+  if (params.hflag) {
+    usage(params.argv0);
+  }
   if (params.version) {
     version();
   }
