@@ -243,11 +243,11 @@ class SearchJob : public Job {
     // scan until we're at something that is not a utf8-tail
     for (; i < 4 && (*it & 0xc0) == 0x80; ++it, ++i) { }
     static constexpr std::array<std::pair<uint8_t, uint8_t>, 5> mask_check {{
-      {0b10000000, 0},            // 1 from end: must be ASCII
-      {0b11100000, 0b11000000},   // 2 from end: ok if it's a 2-byte code point
-      {0b11110000, 0b11100000},   // 3 from end
-      {0b11111000, 0b11110000},   // 4 from end
-      {0, 0},                     // 5? TODO(display): not valid utf8; passthru
+      {0x80, 0},      // 1 from end: must be ASCII
+      {0xe0, 0xc0},   // 2 from end: ok if it's a 2-byte code point
+      {0xf0, 0xe0},   // 3 from end
+      {0xf8, 0xf0},   // 4 from end
+      {0, 0},         // 5? TODO(display): not valid utf8; passthru
     }};
     assert(i < 5);
     auto [mask, check] = mask_check[i];
