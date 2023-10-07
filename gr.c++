@@ -224,9 +224,10 @@ class SearchJob : public Job {
         const auto pre_trunc = truncated ? bold_on : ""sv;
         const auto post_trunc = truncated ? bold_off : ""sv;
         const auto trunc = truncated ? ellipses : "";
-        mPrintLn("{}{:{}}{}{}{}{}{}{}",
-                 pre_line, line, maxWidth, post_line, delim, text, pre_trunc,
-                 trunc, post_trunc);
+        mPrintLn("{}{:{}}{}" "{}{}" "{}{}{}",
+                 pre_line, line, maxWidth, post_line,
+                 delim, text,
+                 pre_trunc, trunc, post_trunc);
       }
     }
     else {
