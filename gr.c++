@@ -378,23 +378,24 @@ struct JobRunner {
 };
 
 int main(int const argc, char const* argv[]) {
-  Opts opts;
+  auto opts = std::make_unique<Opts>();
   try {
-    ArgParser::parse_args(argc, argv, opts);
+    ArgParser::parse_args(argc, argv, *opts);
   }
   catch (const ArgumentError& e) {
-    mPrintLn(std::cerr, "{}: {}", opts.argv0, e.reason);
-    usage(opts.argv0);
+    mPrintLn(std::cerr, "{}: {}", opts->argv0, e.reason);
+    usage(opts->argv0);
   }
-  if (opts.hflag) {
-    usage(opts.argv0);
+  if (opts->hflag) {
+    usage(opts->argv0);
   }
-  if (opts.version) {
+  if (opts->version) {
     version();
   }
   const auto nThreads = std::thread::hardware_concurrency();
-  auto state = GlobalState{opts, SyncedRe(opts.pattern), {}};
-  auto paths = opts.paths.value_or(std::vector{"."sv});
+  auto state = GlobalState{*opts, SyncedRe(opts->pattern), {}};
+  auto paths = opts->paths.value_or(std::vector{"."sv});
+  opts.reset();
   for (auto path: std::move(paths)) {
     state.queue.push(std::make_unique<AddPathsJob>(state, path));
   }
