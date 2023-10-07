@@ -1,11 +1,8 @@
 #include <cstddef>
 
-#include <algorithm>
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <exception>
-#include <expected>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -15,7 +12,6 @@
 #include <string_view>
 #include <thread>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include <unistd.h>
@@ -23,6 +19,7 @@
 #include <absl/strings/string_view.h>
 #include <re2/re2.h>
 
+#include "opts.h"
 #include "io.h"
 #include "job.h"
 
@@ -34,271 +31,6 @@ using namespace std::string_view_literals;
 
 #define BOLD_ON "\x1b[1m"
 #define BOLD_OFF "\x1b[0m"
-
-struct ArgumentError: std::exception {
-  std::string reason;
-
-  explicit ArgumentError(auto&& reason): reason(FWD(reason)) {}
-};
-
-struct Opts {
-  std::string_view argv0;
-  std::string_view pattern;
-  std::optional<std::vector<std::string_view>> paths;
-  bool stdout_is_tty = false;
-  uint16_t before_context = 0;
-  uint16_t after_context = 0;
-  bool hflag = false;
-  bool lflag = false;
-  bool llflag = false;
-  bool version = false;
-};
-
-struct ArgParser {
-  using opt_func = void (*)(Opts&);
-  using arg_func = void (*)(Opts&, std::string_view);
-  using func = std::variant<opt_func, arg_func>;
-  static constexpr auto read_int = [](auto& value, std::string_view arg) {
-    auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
-                                     value);
-    if (ec != std::errc() || ptr != arg.data() + arg.size()) {
-      throw ArgumentError{std::format("invalid number: '{}'", arg)};
-    }
-  };
-  static constexpr arg_func do_aflag = [](Opts& o, std::string_view arg) {
-    read_int(o.after_context, arg);
-  };
-  static constexpr arg_func do_bflag = [](Opts& o, std::string_view arg) {
-    read_int(o.before_context, arg);
-  };
-  static constexpr arg_func do_cflag = [](Opts& o, std::string_view arg) {
-    read_int(o.after_context, arg);
-    o.before_context = o.after_context;
-  };
-  static constexpr opt_func do_hflag = [](Opts& o) {
-    o.hflag = true;
-  };
-  static constexpr opt_func do_lflag = [](Opts& o) {
-    o.lflag = true;
-  };
-  static constexpr opt_func do_llflag = [](Opts& o) {
-    o.llflag = true;
-  };
-  static constexpr opt_func do_version = [](Opts& o) {
-    o.version = true;
-  };
-
-  static constexpr std::array long_opts {
-    std::pair {"after-context"sv, func(do_aflag)},
-    std::pair {"before-context"sv, func(do_bflag)},
-    std::pair {"context"sv, func(do_cflag)},
-    std::pair {"files-with-matches"sv, func(do_lflag)},
-    std::pair {"help"sv, func(do_hflag)},
-    std::pair {"long-lines"sv, func(do_llflag)},
-    std::pair {"version"sv, func(do_version)},
-  };
-
-  static constexpr std::string_view short_opt_chars { "ABChl" };
-  static constexpr std::array<func, short_opt_chars.size()> short_opts {
-    do_aflag,
-    do_bflag,
-    do_cflag,
-    do_hflag,
-    do_lflag,
-  };
-  static_assert(
-      std::all_of(
-          std::begin(short_opts), std::end(short_opts),
-          [](auto v) {
-            return std::visit([](auto&& f) { return f != nullptr; }, v);
-          }), "missing short_opts func");
-
-  static constexpr auto lookup_long_opt(std::string_view opt) {
-    auto it = std::lower_bound(std::begin(long_opts), std::end(long_opts),
-                               opt,
-                               [](auto a, auto b) {
-                                 return std::get<0>(a) < b;
-                               });
-    if (it != std::end(long_opts) && std::get<0>(*it).starts_with(opt)) {
-      if (it + 1 != std::end(long_opts)
-          && std::get<0>(*(it + 1)).starts_with(opt)) {
-        throw ArgumentError{std::format("ambiguous option --{}", opt)};
-      }
-      return *it;
-    }
-    throw ArgumentError{std::format("unrecognized option --{}", opt)};
-  }
-
-  static void swap_portions(char const* argv[], int& first_nonopt,
-                            int& last_nonopt, int optind) {
-    int bottom = first_nonopt;
-    int middle = last_nonopt;
-    int top = optind;
-
-    while (top > middle && middle > bottom) {
-      if (top - middle > middle - bottom) {
-        std::swap_ranges(argv + bottom, argv + middle,
-                         argv + top - (middle - bottom));
-        top -= (middle - bottom);
-      }
-      else {
-        std::swap_ranges(argv + bottom, argv + bottom + (top - middle),
-                         argv + middle);
-        bottom += (top - middle);
-      }
-    }
-    first_nonopt += (optind - last_nonopt);
-    last_nonopt = optind;
-  }
-
-  static void parse_args(const int argc, char const* argv[], Opts& opts) {
-    opts.argv0 = *argv;
-    int optind = 1;
-    int first_nonopt = 1;
-    int last_nonopt = 1;
-    while (true) {
-      if (first_nonopt != last_nonopt && last_nonopt != optind) {
-        swap_portions(argv, first_nonopt, last_nonopt, optind);
-      }
-      else if (last_nonopt != optind) {
-        first_nonopt = optind;
-      }
-      std::string_view opt;
-      while (optind < argc && !(opt = argv[optind]).starts_with('-')) {
-        ++optind;
-      }
-      last_nonopt = optind;
-
-      if (optind != argc && opt == "--") {
-        ++optind;
-        if (first_nonopt != last_nonopt && last_nonopt != optind) {
-          swap_portions(argv, first_nonopt, last_nonopt, optind);
-        }
-        else if (first_nonopt == last_nonopt) {
-          first_nonopt = optind;
-        }
-        last_nonopt = argc;
-        optind = argc;
-      }
-
-      if (optind == argc) {
-        if (first_nonopt != last_nonopt) {
-          optind = first_nonopt;
-        }
-        break;
-      }
-
-      opt.remove_prefix(1);
-      if (opt.starts_with('-')) {
-        ++optind;
-        opt.remove_prefix(1);
-        auto eq = opt.find('=');
-        auto arg = [=]{
-          if (eq != opt.npos) {
-            return std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
-          }
-          return std::string_view();
-        }();
-        if (eq != opt.npos) {
-          opt.remove_suffix(opt.size() - eq);
-        }
-        auto [optopt, func] = lookup_long_opt(opt);
-        std::visit([&](auto&& f) {
-          using T = std::decay_t<decltype(f)>;
-          if constexpr (std::is_same_v<T, opt_func>) {
-            if (eq != opt.npos) {
-              throw ArgumentError{
-                  std::format("--{} takes no argument", optopt)};
-            }
-            f(opts);
-          }
-          else {
-            static_assert(std::is_same_v<T, arg_func>);
-            if (eq == opt.npos) {
-              if (optind < argc) {
-                arg = argv[optind++];
-              }
-              else {
-                throw ArgumentError{
-                    std::format("--{} requires argument", optopt)};
-              }
-            }
-            f(opts, arg);
-          }
-        }, func);
-      }
-      else {
-        while (opt.size()) {
-          const auto c = opt.front();
-          const auto i = short_opt_chars.find(c);
-          opt.remove_prefix(1);
-          if (!opt.size()) {
-            ++optind;
-          }
-          if (i == short_opt_chars.npos) {
-            throw ArgumentError{std::format("invalid option -{}", c)};
-          }
-          auto func = short_opts[i];
-          std::visit([&](auto&& f) {
-            using T = std::decay_t<decltype(f)>;
-            if constexpr (std::is_same_v<T, opt_func>) {
-              f(opts);
-            }
-            else {
-              static_assert(std::is_same_v<T, arg_func>);
-              std::string_view arg;
-              if (opt.size()) {
-                std::swap(arg, opt);
-              }
-              else if (optind == argc) {
-                throw ArgumentError{std::format("-{} requires argument", c)};
-              }
-              else {
-                arg = argv[optind++];
-              }
-              f(opts, arg);
-            }
-          }, func);
-        }
-      }
-    }
-    if (opts.hflag || opts.version) {
-      return;
-    }
-    if (optind == argc) {
-      throw ArgumentError{"missing pattern"};
-    }
-    opts.pattern = argv[optind++];
-    if (optind < argc) {
-      opts.paths.emplace(argv + optind, argv + argc);
-    }
-    opts.stdout_is_tty = isatty(fileno(stdout));
-  }
-};
-
-[[noreturn]] void usage(std::string_view argv0) {
-  mPrintLn(std::cerr, "usage: {} [options] <pattern> [path ...]", argv0);
-  mPrintLn(
-      std::cerr,
-
-      "\nRecursively search for pattern in path.\n"
-      "Uses the re2 regular expression library.\n\n"
-
-      "Options:\n"
-#if 0
-      "  -A --after-context <num> Show num lines of context after each match\n"
-      "  -B --before-context <num>\n"
-      "                           Show num lines of context before each match\n"
-      "  -C --context <num>       Show num lines before and after each match\n"
-#endif
-      "  -l --files-with-matches  Only print filenames that contain matches\n"
-      "                           (don't print the matching lines)\n"
-      "     --long-lines          Print long lines (default truncates to ~2k)\n"
-      "  -h --help                Print this usage message and exit.\n"
-      "     --version             Print the program version.\n"
-  );
-  exit(2);
-}
 
 [[noreturn]] void version() {
   mPrintLn("gr version 0.1.0");
