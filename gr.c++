@@ -2,6 +2,7 @@
 
 #include <array>
 #include <atomic>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -153,18 +154,39 @@ class SearchJob : public Job {
 
     // TODO multiline
     size_t line = 0;
+    size_t last_match = SIZE_MAX;
     struct Match {
       size_t line;
       std::string_view text;
       bool truncated;
+      bool is_context;
     };
     std::vector<Match> matches;
+    std::deque<std::pair<std::string_view, bool>> before_context;
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
-        matches.emplace_back(line, text, end != text.size());
+        auto pre_line = line - before_context.size();
+        for (auto [pre_text, trunc]: std::move(before_context)) {
+          matches.emplace_back(pre_line++, pre_text, trunc, true);
+        }
+        before_context.clear();
+        matches.emplace_back(line, text, end != text.size(), false);
         maxWidth = calcWidth(line);
+        last_match = 0;
+      }
+      else if (last_match < state.opts.after_context) {
+        ++last_match;
+        matches.emplace_back(line, text, end != text.size(), true);
+      }
+      else {
+        if (state.opts.before_context) {
+          if (before_context.size() == state.opts.before_context) {
+            before_context.pop_front();
+          }
+          before_context.emplace_back(text, end != text.size());
+        }
       }
     };
     while (view.size()) {
@@ -187,15 +209,21 @@ class SearchJob : public Job {
     }
     else mPrintLn("{}", pretty_path());
     if (matches.size()) {
-      for (auto [line, text, truncated]: matches) {
-        if (state.opts.stdout_is_tty) {
-          mPrint(BOLD_ON "{:{}}" BOLD_OFF ":{}", line, maxWidth, text);
+      auto last_line = 0uz;
+      for (auto [line, text, truncated, is_context]: matches) {
+        if ((state.opts.before_context || state.opts.after_context)
+            && last_line && line != last_line + 1) {
+          mPrintLn("--");
         }
-        else mPrint("{:{}}:{}", line, maxWidth, text);
-        if (truncated) {
-          mPrintLn("{}", ellipses());
-        }
-        else mPrintLn("");
+        last_line = line;
+        const auto delim = is_context ? '-' : ':';
+        const auto pre_line = state.opts.stdout_is_tty && !is_context
+            ? BOLD_ON : "";
+        const auto post_line = state.opts.stdout_is_tty && !is_context
+            ? BOLD_OFF : "";
+        const auto trail = truncated ? ellipses() : "";
+        mPrintLn("{}{:{}}{}{}{}{}", pre_line, line, maxWidth, post_line, delim,
+                 text, trail);
       }
     }
     else {

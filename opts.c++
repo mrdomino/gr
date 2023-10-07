@@ -23,12 +23,10 @@ static_assert(
       "Uses the re2 regular expression library.\n\n"
 
       "Options:\n"
-#if 0
       "  -A --after-context <num> Show num lines of context after each match\n"
       "  -B --before-context <num>\n"
       "                           Show num lines of context before each match\n"
       "  -C --context <num>       Show num lines before and after each match\n"
-#endif
       "  -l --files-with-matches  Only print filenames that contain matches\n"
       "                           (don't print the matching lines)\n"
       "     --long-lines          Print long lines (default truncates to ~2k)\n"
