@@ -18,7 +18,7 @@ struct ArgumentError: std::exception {
 
   template <typename... Args>
   explicit ArgumentError(std::format_string<Args...> fmt, Args&&... args)
-  : reason(std::format(fmt, std::forward<Args>(args)...)) {}
+      : reason(std::format(fmt, std::forward<Args>(args)...)) {}
 };
 
 struct Opts {
