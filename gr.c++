@@ -397,9 +397,8 @@ int main(int const argc, char const* argv[]) {
   auto options = RE2::Options();
   options.set_literal(opts->qflag);
   auto state = GlobalState{*opts, SyncedRe(opts->pattern, options), {}};
-  auto paths = opts->paths.value_or(std::vector{"."sv});
   opts.reset();
-  for (auto path: std::move(paths)) {
+  for (const auto path: state.opts.paths.value_or(std::vector{"."sv})) {
     state.queue.push(std::make_unique<AddPathsJob>(state, path));
   }
   state.queue.push(std::make_unique<CompileReJob>(state));
