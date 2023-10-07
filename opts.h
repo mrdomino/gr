@@ -1,8 +1,13 @@
+#include <cstdint>
+
+#include <array>
 #include <charconv>
 #include <format>
 #include <optional>
 #include <string_view>
+#include <utility>
 #include <variant>
+#include <vector>
 
 using namespace std::string_view_literals;
 
