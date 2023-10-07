@@ -231,7 +231,7 @@ class SearchJob : public Job {
       }
     }
     else {
-      mPrintLn("(matched too far into line to display)");
+      mPrintLn("(file matched, but no lines matched)");
     }
   }
 
