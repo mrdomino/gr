@@ -38,53 +38,59 @@ static_assert(
   exit(2);
 }
 
+namespace {
+
 constexpr std::pair<std::string_view, ArgParser::func>
-ArgParser::lookup_long_opt(std::string_view opt) {
-  auto it = std::lower_bound(std::begin(long_opts), std::end(long_opts),
-                             opt,
-                             [](auto a, auto b) {
-                               return std::get<0>(a) < b;
-                             });
-  if (it != std::end(long_opts) && std::get<0>(*it).starts_with(opt)) {
-    if (it + 1 != std::end(long_opts)
+lookup_long_opt(std::string_view opt) {
+  auto it = std::lower_bound(
+      std::begin(ArgParser::long_opts), std::end(ArgParser::long_opts), opt,
+      [](auto a, auto b) {
+        return std::get<0>(a) < b;
+      });
+  if (it != std::end(ArgParser::long_opts)
+      && std::get<0>(*it).starts_with(opt)) {
+    if (it + 1 != std::end(ArgParser::long_opts)
         && std::get<0>(*(it + 1)).starts_with(opt)) {
-      throw ArgumentError{std::format("ambiguous option --{}", opt)};
+      throw ArgumentError{"ambiguous option --{}", opt};
     }
     return *it;
   }
-  throw ArgumentError{std::format("unrecognized option --{}", opt)};
+  throw ArgumentError{"unrecognized option --{}", opt};
 }
 
-void ArgParser::swap_portions(char const* argv[], int& first_nonopt,
-                              int& last_nonopt, int optind) {
-    int bottom = first_nonopt;
-    int middle = last_nonopt;
-    int top = optind;
+void swap_portions(char const* argv[], int* first_nonopt, int* last_nonopt,
+                   int optind) {
+  int bottom = *first_nonopt;
+  int middle = *last_nonopt;
+  int top = optind;
 
-    while (top > middle && middle > bottom) {
-      if (top - middle > middle - bottom) {
-        std::swap_ranges(argv + bottom, argv + middle,
-                         argv + top - (middle - bottom));
-        top -= (middle - bottom);
-      }
-      else {
-        std::swap_ranges(argv + bottom, argv + bottom + (top - middle),
-                         argv + middle);
-        bottom += (top - middle);
-      }
+  while (top > middle && middle > bottom) {
+    if (top - middle > middle - bottom) {
+      std::swap_ranges(argv + bottom, argv + middle,
+                       argv + top - (middle - bottom));
+      top -= (middle - bottom);
     }
-    first_nonopt += (optind - last_nonopt);
-    last_nonopt = optind;
+    else {
+      std::swap_ranges(argv + bottom, argv + bottom + (top - middle),
+                       argv + middle);
+      bottom += (top - middle);
+    }
   }
+  *first_nonopt += (optind - *last_nonopt);
+  *last_nonopt = optind;
+}
+
+}   // namespace
 
 void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
     opts.argv0 = *argv;
+    opts.stdout_is_tty = isatty(fileno(stdout));
     int optind = 1;
     int first_nonopt = 1;
     int last_nonopt = 1;
     while (true) {
       if (first_nonopt != last_nonopt && last_nonopt != optind) {
-        swap_portions(argv, first_nonopt, last_nonopt, optind);
+        swap_portions(argv, &first_nonopt, &last_nonopt, optind);
       }
       else if (last_nonopt != optind) {
         first_nonopt = optind;
@@ -98,7 +104,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
       if (optind != argc && opt == "--") {
         ++optind;
         if (first_nonopt != last_nonopt && last_nonopt != optind) {
-          swap_portions(argv, first_nonopt, last_nonopt, optind);
+          swap_portions(argv, &first_nonopt, &last_nonopt, optind);
         }
         else if (first_nonopt == last_nonopt) {
           first_nonopt = optind;
@@ -133,8 +139,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
           using T = std::decay_t<decltype(f)>;
           if constexpr (std::is_same_v<T, opt_func>) {
             if (eq != opt.npos) {
-              throw ArgumentError{
-                  std::format("--{} takes no argument", optopt)};
+              throw ArgumentError{"--{} takes no argument", optopt};
             }
             f(opts);
           }
@@ -145,8 +150,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
                 arg = argv[optind++];
               }
               else {
-                throw ArgumentError{
-                    std::format("--{} requires argument", optopt)};
+                throw ArgumentError{"--{} requires argument", optopt};
               }
             }
             f(opts, arg);
@@ -157,12 +161,12 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
         while (opt.size()) {
           const auto c = opt.front();
           const auto i = short_opt_chars.find(c);
+          if (i == short_opt_chars.npos) {
+            throw ArgumentError{"invalid option -{}", c};
+          }
           opt.remove_prefix(1);
           if (!opt.size()) {
             ++optind;
-          }
-          if (i == short_opt_chars.npos) {
-            throw ArgumentError{std::format("invalid option -{}", c)};
           }
           auto func = short_opts[i];
           std::visit([&](auto&& f) {
@@ -177,7 +181,7 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
                 std::swap(arg, opt);
               }
               else if (optind == argc) {
-                throw ArgumentError{std::format("-{} requires argument", c)};
+                throw ArgumentError{"-{} requires argument", c};
               }
               else {
                 arg = argv[optind++];
@@ -198,5 +202,4 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
     if (optind < argc) {
       opts.paths.emplace(argv + optind, argv + argc);
     }
-    opts.stdout_is_tty = isatty(fileno(stdout));
   }

@@ -14,7 +14,9 @@ using namespace std::string_view_literals;
 struct ArgumentError: std::exception {
   std::string reason;
 
-  explicit ArgumentError(std::string&& reason): reason(std::move(reason)) {}
+  template <typename... Args>
+  explicit ArgumentError(std::format_string<Args...> fmt, Args&&... args)
+  : reason(std::format(fmt, std::forward<Args>(args)...)) {}
 };
 
 struct Opts {
@@ -38,7 +40,7 @@ struct ArgParser {
     auto [ptr, ec] = std::from_chars(arg.data(), arg.data() + arg.size(),
                                      value);
     if (ec != std::errc() || ptr != arg.data() + arg.size()) {
-      throw ArgumentError{std::format("invalid number: '{}'", arg)};
+      throw ArgumentError{"invalid number: '{}'", arg};
     }
   };
   static constexpr arg_func do_aflag = [](Opts& o, std::string_view arg) {
@@ -82,12 +84,6 @@ struct ArgParser {
     do_hflag,
     do_lflag,
   };
-
-  static constexpr std::pair<std::string_view, func>
-  lookup_long_opt(std::string_view opt);
-
-  static void swap_portions(char const* argv[], int& first_nonopt,
-                            int& last_nonopt, int optind);
 
   static void parse_args(const int argc, char const* argv[], Opts& opts);
 };
