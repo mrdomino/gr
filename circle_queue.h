@@ -5,8 +5,9 @@
 #include <memory>
 #include <type_traits>
 
-template <typename T, typename A = std::allocator<T>>
-class CircleQueue: private A {
+template <typename T>
+class CircleQueue: private std::allocator<T> {
+  using A = std::allocator<T>;
  public:
   class iterator;
 
@@ -15,12 +16,7 @@ class CircleQueue: private A {
       , full(false)
       , start(0)
       , data(size_ ? A::allocate(size_) : nullptr) {
-    static_assert(sizeof(*this) == []{
-      if constexpr (std::is_empty_v<A>) {
-        return 2 * sizeof(size_t) + sizeof(T*);
-      }
-      return sizeof(A) + 2 * sizeof(size_t) + sizeof(T*);
-    }());
+    static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
     const auto deleter = [this](T* p) {
       if (p) {
         A::deallocate(p, size_);
@@ -93,8 +89,8 @@ class CircleQueue: private A {
   T* data;
 };
 
-template <typename T, typename A>
-class CircleQueue<T, A>::iterator {
+template <typename T>
+class CircleQueue<T>::iterator {
  public:
   using value_type = T;
 
