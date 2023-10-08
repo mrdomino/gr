@@ -185,7 +185,7 @@ class SearchJob : public Job {
       }
       else {
         if (state.opts.before_context) {
-          before_context.emplace_back(text, end != text.size());
+          before_context.emplace(text, end != text.size());
         }
       }
     };

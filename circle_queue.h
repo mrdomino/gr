@@ -57,7 +57,7 @@ class CircleQueue: private std::allocator<T> {
   }
 
   template <typename... Args>
-  void emplace_back(Args&&... args) {
+  void emplace(Args&&... args) {
     if constexpr (!std::is_trivially_destructible_v<T>) {
       if (full) {
         std::ranges::destroy_at(std::launder(data + start));
