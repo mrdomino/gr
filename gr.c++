@@ -163,9 +163,12 @@ class SearchJob : public Job {
       bool truncated;
       bool is_context;
     };
+    struct Context {
+      std::string_view text;
+      bool truncated;
+    };
     std::vector<Match> matches;
-    CircleQueue<std::pair<std::string_view, bool>> before_context(
-        state.opts.before_context);
+    CircleQueue<Context> before_context(state.opts.before_context);
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = truncate_span(view, end);
