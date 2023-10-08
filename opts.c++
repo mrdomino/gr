@@ -88,124 +88,124 @@ void swap_portions(char const* argv[], int* first_nonopt, int* last_nonopt,
 }   // namespace
 
 void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
-    opts.argv0 = *argv;
-    opts.stdout_is_tty = isatty(fileno(stdout));
-    int optind = 1;
-    int first_nonopt = 1;
-    int last_nonopt = 1;
-    while (true) {
+  opts.argv0 = *argv;
+  opts.stdout_is_tty = isatty(fileno(stdout));
+  int optind = 1;
+  int first_nonopt = 1;
+  int last_nonopt = 1;
+  while (true) {
+    if (first_nonopt != last_nonopt && last_nonopt != optind) {
+      swap_portions(argv, &first_nonopt, &last_nonopt, optind);
+    }
+    else if (last_nonopt != optind) {
+      first_nonopt = optind;
+    }
+    std::string_view opt;
+    while (optind < argc && !(opt = argv[optind]).starts_with('-')) {
+      ++optind;
+    }
+    last_nonopt = optind;
+
+    if (optind != argc && opt == "--") {
+      ++optind;
       if (first_nonopt != last_nonopt && last_nonopt != optind) {
         swap_portions(argv, &first_nonopt, &last_nonopt, optind);
       }
-      else if (last_nonopt != optind) {
+      else if (first_nonopt == last_nonopt) {
         first_nonopt = optind;
       }
-      std::string_view opt;
-      while (optind < argc && !(opt = argv[optind]).starts_with('-')) {
-        ++optind;
-      }
-      last_nonopt = optind;
+      last_nonopt = argc;
+      optind = argc;
+    }
 
-      if (optind != argc && opt == "--") {
-        ++optind;
-        if (first_nonopt != last_nonopt && last_nonopt != optind) {
-          swap_portions(argv, &first_nonopt, &last_nonopt, optind);
-        }
-        else if (first_nonopt == last_nonopt) {
-          first_nonopt = optind;
-        }
-        last_nonopt = argc;
-        optind = argc;
+    if (optind == argc) {
+      if (first_nonopt != last_nonopt) {
+        optind = first_nonopt;
       }
+      break;
+    }
 
-      if (optind == argc) {
-        if (first_nonopt != last_nonopt) {
-          optind = first_nonopt;
-        }
-        break;
-      }
-
+    opt.remove_prefix(1);
+    if (opt.starts_with('-')) {
+      ++optind;
       opt.remove_prefix(1);
-      if (opt.starts_with('-')) {
-        ++optind;
-        opt.remove_prefix(1);
-        auto eq = opt.find('=');
-        auto arg = [=] {
-          if (eq != opt.npos) {
-            return std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
-          }
-          return std::string_view();
-        }();
+      auto eq = opt.find('=');
+      auto arg = [=] {
         if (eq != opt.npos) {
-          opt.remove_suffix(opt.size() - eq);
+          return std::string_view(opt.begin() + eq + 1, opt.size() - eq - 1);
         }
-        auto [optopt, func] = lookup_long_opt(opt);
+        return std::string_view();
+      }();
+      if (eq != opt.npos) {
+        opt.remove_suffix(opt.size() - eq);
+      }
+      auto [optopt, func] = lookup_long_opt(opt);
+      std::visit([&](auto&& f) {
+        using T = std::decay_t<decltype(f)>;
+        if constexpr (std::is_same_v<T, opt_func>) {
+          if (eq != opt.npos) {
+            throw ArgumentError{"--{} takes no argument", optopt};
+          }
+          f(opts);
+        }
+        else {
+          static_assert(std::is_same_v<T, arg_func>);
+          if (eq == opt.npos) {
+            if (optind < argc) {
+              arg = argv[optind++];
+            }
+            else {
+              throw ArgumentError{"--{} requires argument", optopt};
+            }
+          }
+          f(opts, arg);
+        }
+      }, func);
+    }
+    else {
+      while (opt.size()) {
+        const auto c = opt.front();
+        const auto i = short_opt_chars.find(c);
+        if (i == short_opt_chars.npos) {
+          throw ArgumentError{"invalid option -{}", c};
+        }
+        opt.remove_prefix(1);
+        if (!opt.size()) {
+          ++optind;
+        }
+        auto func = short_opts[i];
         std::visit([&](auto&& f) {
           using T = std::decay_t<decltype(f)>;
           if constexpr (std::is_same_v<T, opt_func>) {
-            if (eq != opt.npos) {
-              throw ArgumentError{"--{} takes no argument", optopt};
-            }
             f(opts);
           }
           else {
             static_assert(std::is_same_v<T, arg_func>);
-            if (eq == opt.npos) {
-              if (optind < argc) {
-                arg = argv[optind++];
-              }
-              else {
-                throw ArgumentError{"--{} requires argument", optopt};
-              }
+            std::string_view arg;
+            if (opt.size()) {
+              std::swap(arg, opt);
+              ++optind;
+            }
+            else if (optind == argc) {
+              throw ArgumentError{"-{} requires argument", c};
+            }
+            else {
+              arg = argv[optind++];
             }
             f(opts, arg);
           }
         }, func);
       }
-      else {
-        while (opt.size()) {
-          const auto c = opt.front();
-          const auto i = short_opt_chars.find(c);
-          if (i == short_opt_chars.npos) {
-            throw ArgumentError{"invalid option -{}", c};
-          }
-          opt.remove_prefix(1);
-          if (!opt.size()) {
-            ++optind;
-          }
-          auto func = short_opts[i];
-          std::visit([&](auto&& f) {
-            using T = std::decay_t<decltype(f)>;
-            if constexpr (std::is_same_v<T, opt_func>) {
-              f(opts);
-            }
-            else {
-              static_assert(std::is_same_v<T, arg_func>);
-              std::string_view arg;
-              if (opt.size()) {
-                std::swap(arg, opt);
-                ++optind;
-              }
-              else if (optind == argc) {
-                throw ArgumentError{"-{} requires argument", c};
-              }
-              else {
-                arg = argv[optind++];
-              }
-              f(opts, arg);
-            }
-          }, func);
-        }
-      }
-    }
-    if (opts.hflag || opts.version) {
-      return;
-    }
-    if (optind == argc) {
-      throw ArgumentError{"missing pattern"};
-    }
-    opts.pattern = argv[optind++];
-    if (optind < argc) {
-      opts.paths = std::vector<std::string_view>(argv + optind, argv + argc);
     }
   }
+  if (opts.hflag || opts.version) {
+    return;
+  }
+  if (optind == argc) {
+    throw ArgumentError{"missing pattern"};
+  }
+  opts.pattern = argv[optind++];
+  if (optind < argc) {
+    opts.paths = std::vector<std::string_view>(argv + optind, argv + argc);
+  }
+}
