@@ -53,12 +53,14 @@ class CircleQueue: private std::allocator<T> {
 
   template <typename... Args>
   void emplace(Args&&... args) {
-    if constexpr (!std::is_trivially_destructible_v<T>) {
-      if (full) {
-        std::ranges::destroy_at(std::launder(data + start));
-      }
+    if (!full) {
+      std::construct_at(data + start, std::forward<Args>(args)...);
     }
-    std::construct_at(data + start, std::forward<Args>(args)...);
+    else {
+      // construct-and-move so that the container remains in a consistent state
+      // on exception.
+      data[start] = T(std::forward<Args>(args)...);
+    }
     if (++start == size_) {
       full = true;
       start = 0;
