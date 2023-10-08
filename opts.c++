@@ -206,6 +206,6 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
     }
     opts.pattern = argv[optind++];
     if (optind < argc) {
-      opts.paths.emplace(argv + optind, argv + argc);
+      opts.paths = std::vector<std::string_view>(argv + optind, argv + argc);
     }
   }

@@ -392,9 +392,13 @@ int main(int const argc, char const* argv[]) {
   const auto nThreads = std::thread::hardware_concurrency();
   auto options = RE2::Options();
   options.set_literal(opts->qflag);
-  auto state = GlobalState{*opts, SyncedRe(opts->pattern, options), {}};
+  const auto pattern = opts->pattern;
+  auto state = GlobalState{std::move(*opts), SyncedRe(pattern, options), {}};
   opts.reset();
-  for (const auto path: state.opts.paths.value_or(std::vector{"."sv})) {
+  if (!state.opts.paths.size()) {
+    state.queue.push(std::make_unique<AddPathsJob>(state, ".", true));
+  }
+  for (const auto path: state.opts.paths) {
     state.queue.push(std::make_unique<AddPathsJob>(state, path, true));
   }
   state.queue.push(std::make_unique<CompileReJob>(state));

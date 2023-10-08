@@ -4,7 +4,6 @@
 #include <charconv>
 #include <cstdint>
 #include <format>
-#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -24,7 +23,7 @@ struct ArgumentError: std::exception {
 struct Opts {
   std::string_view argv0;
   std::string_view pattern;
-  std::optional<std::vector<std::string_view>> paths;
+  std::vector<std::string_view> paths;
   bool stdout_is_tty = false;
   uint16_t before_context = 0;
   uint16_t after_context = 0;
@@ -33,6 +32,9 @@ struct Opts {
   bool llflag = false;
   bool qflag = false;
   bool version = false;
+
+  Opts() = default;
+  Opts(Opts&&) = default;
 };
 
 struct ArgParser {
