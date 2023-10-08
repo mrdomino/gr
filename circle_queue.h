@@ -38,7 +38,7 @@ class CircleQueue: private std::allocator<T> {
 
   void clear() noexcept {
     if constexpr (!std::is_trivially_destructible_v<T>) {
-      std::destroy_n(std::launder(data), size());
+      std::ranges::destroy_n(std::launder(data), size());
     }
     full = false;
     start = 0;
@@ -60,7 +60,7 @@ class CircleQueue: private std::allocator<T> {
   void emplace_back(Args&&... args) {
     if constexpr (!std::is_trivially_destructible_v<T>) {
       if (full) {
-        std::destroy_at(std::launder(data + start));
+        std::ranges::destroy_at(std::launder(data + start));
       }
     }
     std::construct_at(data + start, std::forward<Args>(args)...);
