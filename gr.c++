@@ -386,7 +386,7 @@ int main(int const argc, char const* argv[]) {
     ArgParser::parse_args(argc, argv, *opts);
   }
   catch (const ArgumentError& e) {
-    mPrintLn(std::cerr, "{}: {}", opts->argv0, e.reason);
+    mPrintLn(std::cerr, "{}: {}", opts->argv0, e.what());
     usage(opts->argv0);
   }
   if (opts->hflag) {

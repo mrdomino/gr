@@ -12,12 +12,10 @@
 
 using namespace std::string_view_literals;
 
-struct ArgumentError: std::exception {
-  std::string reason;
-
+struct ArgumentError: std::runtime_error {
   template <typename... Args>
   explicit ArgumentError(std::format_string<Args...> fmt, Args&&... args)
-      : reason(std::format(fmt, std::forward<Args>(args)...)) {}
+      : runtime_error(std::format(fmt, std::forward<Args>(args)...)) {}
 };
 
 struct Opts {
