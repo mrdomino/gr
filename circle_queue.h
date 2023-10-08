@@ -100,13 +100,25 @@ class CircleQueue<T>::iterator {
     return obj[i];
   }
 
+  T const& operator*() const {
+    return obj[i];
+  }
+
+  T* operator->() {
+    return std::addressof(obj[i]);
+  }
+
+  T const* operator->() const {
+    return std::addressof(obj[i]);
+  }
+
   iterator& operator++() noexcept {
     ++i;
     return *this;
   }
 
   bool operator==(iterator that) const noexcept {
-    assert(std::addressof(obj) == std::addressof(that.obj));
+    assert(&obj == &that.obj);
     return i == that.i;
   }
 
