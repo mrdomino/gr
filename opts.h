@@ -30,6 +30,7 @@ struct Opts {
   bool hflag = false;
   bool lflag = false;
   bool llflag = false;
+  bool multiline = false;
   bool qflag = false;
   bool version = false;
 
@@ -62,6 +63,7 @@ struct ArgParser {
   static constexpr opt_func do_lflag = [](Opts& o) { o.lflag = true; };
   static constexpr opt_func do_llflag = [](Opts& o) { o.llflag = true; };
   static constexpr opt_func do_qflag = [](Opts& o) { o.qflag = true; };
+  static constexpr opt_func do_multiline = [](Opts& o) { o.multiline = true; };
   static constexpr opt_func do_version = [](Opts& o) { o.version = true; };
 
   static constexpr std::array long_opts {
@@ -72,6 +74,7 @@ struct ArgParser {
     std::pair {"help"sv, func(do_hflag)},
     std::pair {"literal"sv, func(do_qflag)},
     std::pair {"long-lines"sv, func(do_llflag)},
+    std::pair {"multiline"sv, func(do_multiline)},
     std::pair {"version"sv, func(do_version)},
   };
 

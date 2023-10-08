@@ -143,7 +143,8 @@ class SearchJob : public Job {
       fs.read(contents.get(), len);
     }
     std::string_view view(contents.get(), len);
-    if (!re2::RE2::PartialMatch(to_absl(view), state.expr)) {
+    if (state.opts.multiline
+        && !re2::RE2::PartialMatch(to_absl(view), state.expr)) {
       return;
     }
 
@@ -199,6 +200,10 @@ class SearchJob : public Job {
       }
       try_add_match(nl);
       view.remove_prefix(nl + 1);
+    }
+
+    if (!state.opts.multiline && matches.empty()) {
+      return;
     }
 
     const auto bold_on = state.opts.stdout_is_tty ? BOLD_ON : ""sv;
