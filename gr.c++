@@ -5,7 +5,6 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
-#include <deque>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -18,9 +17,10 @@
 #include <utility>
 #include <vector>
 
-#include "opts.h"
+#include "circle_queue.h"
 #include "io.h"
 #include "job.h"
+#include "opts.h"
 
 namespace fs = std::filesystem;
 
@@ -164,13 +164,14 @@ class SearchJob : public Job {
       bool is_context;
     };
     std::vector<Match> matches;
-    std::deque<std::pair<std::string_view, bool>> before_context;
+    CircleQueue<const std::pair<std::string_view, bool>> before_context(
+        state.opts.before_context);
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
         auto pre_line = line - before_context.size();
-        for (auto [pre_text, trunc]: std::move(before_context)) {
+        for (const auto& [pre_text, trunc]: before_context) {
           matches.emplace_back(pre_line++, pre_text, trunc, true);
         }
         before_context.clear();
@@ -184,9 +185,6 @@ class SearchJob : public Job {
       }
       else {
         if (state.opts.before_context) {
-          if (before_context.size() == state.opts.before_context) {
-            before_context.pop_front();
-          }
           before_context.emplace_back(text, end != text.size());
         }
       }
