@@ -12,21 +12,16 @@ class CircleQueue: private std::allocator<T> {
   class iterator;
 
   CircleQueue(size_t capacity)
-      : size_(capacity)
-      , full(false)
-      , start(0)
-      , data(size_ ? A::allocate(size_) : nullptr) {
+      : size_(capacity), full(false), start(0) {
     static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
-    const auto deleter = [this](T* p) {
-      if (p) {
-        A::deallocate(p, size_);
-      }
-    };
-    auto hold = std::unique_ptr<T, decltype(deleter)>(data, deleter);
+    if (!capacity) {
+      data = nullptr;
+      return;
+    }
     if (capacity > std::numeric_limits<ssize_t>::max()) {
       throw std::runtime_error{"CircleQueue capacity too large"};
     }
-    hold.release();
+    data = A::allocate(size_);
   }
 
   ~CircleQueue() /* noexcept */ {
