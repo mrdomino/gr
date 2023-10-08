@@ -81,7 +81,8 @@ class CircleQueue: private std::allocator<T> {
   const size_t size_;
   bool full : 1;
   size_t start : std::numeric_limits<ssize_t>::digits;
-  T* data;
+  T* data;  // Owned by this. Not a unique_ptr since there seems to be no
+            // straightforward way to have an empty deleter.
 };
 
 template <typename T>
