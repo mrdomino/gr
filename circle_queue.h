@@ -88,15 +88,24 @@ template <typename T>
 class CircleQueue<T>::iterator {
  public:
   using value_type = T;
+  using difference_type = ssize_t;
+
+  iterator(): obj(nullptr), i(std::numeric_limits<size_t>::max()) {}
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
+  iterator& operator=(iterator r) noexcept {
+    obj = r.obj;
+    i = r.i;
+    return *this;
+  }
+
   T& operator*() const {
-    return obj[i];
+    return (*obj)[i];
   }
 
   T* operator->() const {
-    return std::addressof(obj[i]);
+    return std::addressof((*obj)[i]);
   }
 
   iterator& operator++() noexcept {
@@ -104,15 +113,24 @@ class CircleQueue<T>::iterator {
     return *this;
   }
 
-  bool operator==(iterator that) const noexcept {
-    assert(&obj == &that.obj);
-    return i == that.i;
+  iterator operator++(int) noexcept {
+    iterator r;
+    ++*this;
+    return r;
+  }
+
+  bool operator==(iterator r) const noexcept {
+    assert(obj == r.obj);
+    return i == r.i;
   }
 
  private:
-  iterator(CircleQueue* obj, size_t i): obj(*obj), i(i) {}
+  iterator(CircleQueue* obj, size_t i): obj(obj), i(i) {
+    // XX actually a random-access iterator but we don't care.
+    static_assert(std::forward_iterator<iterator>);
+  }
   friend class CircleQueue;
 
-  CircleQueue& obj;
+  CircleQueue* obj;
   size_t i;
 };
