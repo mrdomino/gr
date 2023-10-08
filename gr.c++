@@ -164,14 +164,14 @@ class SearchJob : public Job {
       bool is_context;
     };
     std::vector<Match> matches;
-    CircleQueue<const std::pair<std::string_view, bool>> before_context(
+    CircleQueue<std::pair<std::string_view, bool>> before_context(
         state.opts.before_context);
     uint8_t maxWidth = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
         auto pre_line = line - before_context.size();
-        for (const auto& [pre_text, trunc]: before_context) {
+        for (const auto [pre_text, trunc]: before_context) {
           matches.emplace_back(pre_line++, pre_text, trunc, true);
         }
         before_context.clear();
