@@ -169,7 +169,7 @@ class SearchJob : public Job {
     };
     std::vector<Match> matches;
     CircleQueue<Context> before_context(state.opts.before_context);
-    uint8_t maxWidth = 0;
+    uint8_t max_width = 0;
     auto try_add_match = [&, this](size_t end) {
       auto text = truncate_span(view, end);
       if (re2::RE2::PartialMatch(to_absl(text), state.expr)) {
@@ -179,7 +179,7 @@ class SearchJob : public Job {
         }
         before_context.clear();
         matches.emplace_back(line, text, end != text.size(), false);
-        maxWidth = calcWidth(line);
+        max_width = calcWidth(line);
         last_match = 0;
       }
       else if (last_match < state.opts.after_context) {
@@ -231,7 +231,7 @@ class SearchJob : public Job {
         const auto post_trunc = truncated ? bold_off : ""sv;
         const auto trunc = truncated ? ellipses : "";
         mPrintLn("{}{:{}}{}" "{}{}" "{}{}{}",
-                 pre_line, line, maxWidth, post_line,
+                 pre_line, line, max_width, post_line,
                  delim, text,
                  pre_trunc, trunc, post_trunc);
       }
