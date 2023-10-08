@@ -91,19 +91,11 @@ class CircleQueue<T>::iterator {
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
-  T& operator*() {
+  T& operator*() const {
     return obj[i];
   }
 
-  T const& operator*() const {
-    return obj[i];
-  }
-
-  T* operator->() {
-    return std::addressof(obj[i]);
-  }
-
-  T const* operator->() const {
+  T* operator->() const {
     return std::addressof(obj[i]);
   }
 
