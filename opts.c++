@@ -8,6 +8,13 @@
 #include "io.h"
 
 static_assert(
+    std::is_sorted(
+        std::begin(ArgParser::long_opts), std::end(ArgParser::long_opts),
+        [](auto a, auto b) {
+          return std::get<0>(a) < std::get<0>(b);
+        }), "long_opts must be sorted");
+
+static_assert(
     std::all_of(
         std::begin(ArgParser::short_opts), std::end(ArgParser::short_opts),
         [](auto v) {
