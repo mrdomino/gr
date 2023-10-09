@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cassert>
 #include <limits>
 #include <memory>
 #include <type_traits>
@@ -94,7 +93,8 @@ class CircleQueue<T>::iterator {
   using value_type = T;
   using difference_type = ssize_t;
 
-  iterator() noexcept: obj(nullptr), i(std::numeric_limits<size_t>::max()) {}
+  iterator() noexcept
+      : obj(nullptr), i(1 << std::numeric_limits<ssize_t>::digits) {}
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
@@ -124,7 +124,7 @@ class CircleQueue<T>::iterator {
   }
 
   bool operator==(iterator r) const noexcept {
-    return obj == r.obj && i == r.i;
+    return i == r.i && obj == r.obj;
   }
 
  private:
