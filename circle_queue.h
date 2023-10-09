@@ -11,7 +11,7 @@ class CircleQueue: private std::allocator<T> {
  public:
   class iterator;
 
-  CircleQueue(size_t capacity)
+  explicit CircleQueue(size_t capacity)
       : size_(capacity), full(false), start(0) {
     static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
     if (!capacity) {
@@ -68,6 +68,7 @@ class CircleQueue: private std::allocator<T> {
   }
 
   iterator begin() noexcept {
+    static_assert(std::forward_iterator<iterator>);
     return iterator(this, 0);
   }
 
@@ -93,7 +94,7 @@ class CircleQueue<T>::iterator {
   using value_type = T;
   using difference_type = ssize_t;
 
-  iterator(): obj(nullptr), i(std::numeric_limits<size_t>::max()) {}
+  iterator() noexcept: obj(nullptr), i(std::numeric_limits<size_t>::max()) {}
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
@@ -117,21 +118,17 @@ class CircleQueue<T>::iterator {
   }
 
   iterator operator++(int) noexcept {
-    iterator r;
+    iterator r(*this);
     ++*this;
     return r;
   }
 
   bool operator==(iterator r) const noexcept {
-    assert(obj == r.obj);
-    return i == r.i;
+    return obj == r.obj && i == r.i;
   }
 
  private:
-  iterator(CircleQueue* obj, size_t i): obj(obj), i(i) {
-    // XX actually a random-access iterator but we don't care.
-    static_assert(std::forward_iterator<iterator>);
-  }
+  iterator(CircleQueue* obj, size_t i): obj(obj), i(i) {}
   friend class CircleQueue;
 
   CircleQueue* obj;
