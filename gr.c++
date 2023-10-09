@@ -148,12 +148,6 @@ class SearchJob : public Job {
       return;
     }
 
-    if (state.opts.lflag) {
-      (void) state.matched_one.test_and_set();
-      mPrintLn("{}", pretty_path());
-      return;
-    }
-
     // TODO multiline
     size_t line = 0;
     size_t last_match = SIZE_MAX;
@@ -211,8 +205,12 @@ class SearchJob : public Job {
     const auto bold_off = state.opts.stdout_is_tty ? BOLD_OFF : ""sv;
 
     std::lock_guard lk(io_mutex);
-    if (state.matched_one.test_and_set()) {
+    if (state.matched_one.test_and_set() && !state.opts.lflag) {
       mPrintLn("");
+    }
+    if (state.opts.lflag) {
+      mPrintLn("{}", pretty_path());
+      return;
     }
     mPrintLn("{}{}{}", bold_on, pretty_path(), bold_off);
     if (matches.size()) {
