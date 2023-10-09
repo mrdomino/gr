@@ -293,9 +293,10 @@ class SearchJob : public Job {
     if (*std::begin(path) == ".") {
       // XX surprisingly painful.... we don't want relative() since it
       // canonicalizes symlinks
-      fs::path q;
-      for (auto it = ++std::begin(path); it != std::end(path); ++it) {
-        q += *it;
+      auto it = ++std::begin(path);
+      fs::path q(*it++);
+      for (; it != std::end(path); ++it) {
+        q /= *it;
       }
       return q.string();
     }
