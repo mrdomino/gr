@@ -2,48 +2,35 @@
 
 #include <limits>
 #include <memory>
+#include <new>
 #include <type_traits>
 
 template <typename T>
-class CircleQueue: private std::allocator<T> {
-  using A = std::allocator<T>;
+class CircleQueue {
  public:
   class iterator;
 
-  explicit CircleQueue(size_t capacity)
-      : size_(capacity), full(false), start(0) {
-    static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
-    if (!capacity) {
-      data = nullptr;
-      return;
-    }
-    if (capacity > std::numeric_limits<ssize_t>::max()) {
-      throw std::runtime_error{"CircleQueue capacity too large"};
-    }
-    data = A::allocate(size_);
-  }
+  explicit CircleQueue(const size_t capacity): size_(capacity), data(alloc()) {}
 
   ~CircleQueue() /* noexcept */ {
-    if (data) {
-      clear();
-      A::deallocate(data, size_);
-    }
+    static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
+    clear();
   }
 
   void clear() noexcept {
     if constexpr (!std::is_trivially_destructible_v<T>) {
-      std::ranges::destroy_n(std::launder(data), size());
+      std::ranges::destroy_n(std::launder(data.get()), size());
     }
     full = false;
     start = 0;
   }
 
   T& operator[](size_t i) {
-    return *std::launder(data + index(i));
+    return *std::launder(data.get() + index(i));
   }
 
   T const& operator[](size_t i) const {
-    return *std::launder(data + index(i));
+    return *std::launder(data.get() + index(i));
   }
 
   size_t size() const noexcept {
@@ -53,7 +40,7 @@ class CircleQueue: private std::allocator<T> {
   template <typename... Args>
   void emplace(Args&&... args) {
     if (!full) {
-      std::construct_at(data + start, std::forward<Args>(args)...);
+      std::construct_at(data.get() + start, std::forward<Args>(args)...);
     }
     else {
       // construct-and-move so that the container remains in a consistent state
@@ -80,11 +67,29 @@ class CircleQueue: private std::allocator<T> {
     return full ? (start + i) % size_ : i;
   }
 
+  struct Deleter {
+    void operator()(T* ptr) {
+      ::operator delete(ptr, std::align_val_t(alignof(T)));
+    }
+  };
+
+  std::unique_ptr<T[], Deleter> alloc() {
+    if (!size_) {
+      return nullptr;
+    }
+    if (size_ > std::numeric_limits<ssize_t>::max()) [[unlikely]] {
+      throw std::runtime_error{"CircleQueue capacity too large"};
+    }
+    return std::unique_ptr<T[], Deleter>(
+        static_cast<T*>(
+            ::operator new(size_ * sizeof(T), std::align_val_t(alignof(T)))),
+        Deleter());
+  }
+
   const size_t size_;
-  bool full : 1;
-  size_t start : std::numeric_limits<ssize_t>::digits;
-  T* data;  // Owned by this. Not a unique_ptr since there seems to be no
-            // straightforward way to have an empty deleter.
+  bool full : 1 = false;
+  size_t start : std::numeric_limits<ssize_t>::digits = 0;
+  std::unique_ptr<T[], Deleter> data;
 };
 
 template <typename T>
