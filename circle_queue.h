@@ -99,7 +99,7 @@ class CircleQueue<T>::iterator {
   using difference_type = ssize_t;
 
   iterator() noexcept
-      : obj(nullptr), i(1 << std::numeric_limits<ssize_t>::digits) {}
+      : obj(nullptr), i(1ull << std::numeric_limits<ssize_t>::digits) {}
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
