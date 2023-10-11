@@ -67,7 +67,7 @@ class CircleQueue {
   }
 
   struct Deleter {
-    void operator()(T* ptr) {
+    void operator()(T* ptr) const noexcept {
       ::operator delete(ptr, std::align_val_t(alignof(T)));
     }
   };
@@ -97,7 +97,7 @@ class CircleQueue<T>::iterator {
   using value_type = T;
   using difference_type = ssize_t;
 
-  iterator() noexcept
+  constexpr iterator() noexcept
       : obj(nullptr), i(1ull << std::numeric_limits<ssize_t>::digits) {}
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
@@ -132,7 +132,7 @@ class CircleQueue<T>::iterator {
   }
 
  private:
-  iterator(CircleQueue* obj, size_t i): obj(obj), i(i) {}
+  iterator(CircleQueue* obj, size_t i) noexcept: obj(obj), i(i) {}
   friend class CircleQueue;
 
   CircleQueue* obj;
