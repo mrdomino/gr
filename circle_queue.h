@@ -25,11 +25,11 @@ class CircleQueue {
     start = 0;
   }
 
-  T& operator[](size_t i) {
+  T& operator[](const size_t i) {
     return *std::launder(data.get() + index(i));
   }
 
-  T const& operator[](size_t i) const {
+  T const& operator[](const size_t i) const {
     return *std::launder(data.get() + index(i));
   }
 
@@ -63,7 +63,7 @@ class CircleQueue {
   }
 
  private:
-  inline size_t index(size_t i) const noexcept {
+  inline size_t index(const size_t i) const noexcept {
     return full ? (start + i) % size_ : i;
   }
 
@@ -89,7 +89,7 @@ class CircleQueue {
   const size_t size_;
   bool full : 1 = false;
   size_t start : std::numeric_limits<ssize_t>::digits = 0;
-  std::unique_ptr<T[], Deleter> data;
+  const std::unique_ptr<T[], Deleter> data;
 };
 
 template <typename T>
@@ -103,7 +103,7 @@ class CircleQueue<T>::iterator {
 
   iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
 
-  iterator& operator=(iterator r) noexcept {
+  iterator& operator=(const iterator r) noexcept {
     obj = r.obj;
     i = r.i;
     return *this;
@@ -128,7 +128,7 @@ class CircleQueue<T>::iterator {
     return r;
   }
 
-  bool operator==(iterator r) const noexcept {
+  bool operator==(const iterator r) const noexcept {
     return i == r.i && obj == r.obj;
   }
 
