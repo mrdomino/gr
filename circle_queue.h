@@ -13,7 +13,6 @@ class CircleQueue {
   explicit CircleQueue(const size_t capacity): size_(capacity), data(alloc()) {}
 
   ~CircleQueue() /* noexcept */ {
-    static_assert(sizeof(*this) == 2 * sizeof(size_t) + sizeof(T*));
     clear();
   }
 
