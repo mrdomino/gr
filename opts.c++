@@ -34,6 +34,7 @@ static_assert(
       "  -B --before-context <num>\n"
       "                           Show num lines of context before each match\n"
       "  -C --context <num>       Show num lines before and after each match\n"
+      "  -c --count               Show count of matches only\n"
       "  -l --files-with-matches  Only print filenames that contain matches\n"
       "                           (don't print the matching lines)\n"
       "     --long-lines          Print long lines (default truncates to ~2k)\n"
@@ -207,5 +208,9 @@ void ArgParser::parse_args(const int argc, char const* argv[], Opts& opts) {
   opts.pattern = argv[optind++];
   if (optind < argc) {
     opts.paths = std::vector<std::string_view>(argv + optind, argv + argc);
+  }
+
+  if (opts.count || opts.lflag) {
+    opts.before_context = opts.after_context = 0;
   }
 }

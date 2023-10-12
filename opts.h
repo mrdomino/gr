@@ -25,6 +25,7 @@ struct Opts {
   bool stdout_is_tty = false;
   uint16_t before_context = 0;
   uint16_t after_context = 0;
+  bool count = false;
   bool hflag = false;
   bool lflag = false;
   bool llflag = false;
@@ -57,6 +58,7 @@ struct ArgParser {
     read_int(o.after_context, arg);
     o.before_context = o.after_context;
   };
+  static constexpr opt_func do_count = [](Opts& o) { o.count = true; };
   static constexpr opt_func do_hflag = [](Opts& o) { o.hflag = true; };
   static constexpr opt_func do_lflag = [](Opts& o) { o.lflag = true; };
   static constexpr opt_func do_llflag = [](Opts& o) { o.llflag = true; };
@@ -68,6 +70,7 @@ struct ArgParser {
     std::pair {"after-context"sv, func(do_aflag)},
     std::pair {"before-context"sv, func(do_bflag)},
     std::pair {"context"sv, func(do_cflag)},
+    std::pair {"count"sv, func(do_count)},
     std::pair {"files-with-matches"sv, func(do_lflag)},
     std::pair {"help"sv, func(do_hflag)},
     std::pair {"literal"sv, func(do_qflag)},
@@ -76,12 +79,13 @@ struct ArgParser {
     std::pair {"version"sv, func(do_version)},
   };
 
-  static constexpr std::string_view short_opt_chars { "ABCQhl" };
+  static constexpr std::string_view short_opt_chars { "ABCQchl" };
   static constexpr std::array<func, short_opt_chars.size()> short_opts {
     do_aflag,
     do_bflag,
     do_cflag,
     do_qflag,
+    do_count,
     do_hflag,
     do_lflag,
   };

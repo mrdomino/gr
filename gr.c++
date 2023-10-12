@@ -205,11 +205,16 @@ class SearchJob : public Job {
     const auto bold_off = state.opts.stdout_is_tty ? BOLD_OFF : ""sv;
 
     std::lock_guard lk(io_mutex);
-    if (state.matched_one.test_and_set() && !state.opts.lflag) {
+    if (state.matched_one.test_and_set() && !state.opts.lflag
+        && !state.opts.count) {
       mPrintLn("");
     }
     if (state.opts.lflag) {
       mPrintLn("{}", pretty_path());
+      return;
+    }
+    if (state.opts.count) {
+      mPrintLn("{}{}{}:{}", bold_on, pretty_path(), bold_off, matches.size());
       return;
     }
     mPrintLn("{}{}{}", bold_on, pretty_path(), bold_off);
