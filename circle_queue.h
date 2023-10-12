@@ -62,15 +62,13 @@ class CircleQueue {
   }
 
  private:
+  using Deleter = decltype([](T* ptr) {
+    ::operator delete(ptr, std::align_val_t(alignof(T)));
+  });
+
   inline size_t index(const size_t i) const noexcept {
     return full ? (start + i) % size_ : i;
   }
-
-  struct Deleter {
-    void operator()(T* ptr) const noexcept {
-      ::operator delete(ptr, std::align_val_t(alignof(T)));
-    }
-  };
 
   std::unique_ptr<T[], Deleter> alloc() {
     if (!size_) {
