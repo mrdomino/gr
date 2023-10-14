@@ -53,7 +53,7 @@ class CircleQueue {
   }
 
   iterator begin() noexcept {
-    static_assert(std::forward_iterator<iterator>);
+    static_assert(std::input_iterator<iterator>);
     return iterator(this, 0);
   }
 
@@ -95,17 +95,6 @@ class CircleQueue<T>::iterator {
   using value_type = T;
   using difference_type = ssize_t;
 
-  constexpr iterator() noexcept
-      : obj(nullptr), i(1ull << std::numeric_limits<ssize_t>::digits) {}
-
-  iterator(iterator const& r) noexcept: obj(r.obj), i(r.i) {}
-
-  iterator& operator=(const iterator r) noexcept {
-    obj = r.obj;
-    i = r.i;
-    return *this;
-  }
-
   T& operator*() const {
     return (*obj)[i];
   }
@@ -126,7 +115,8 @@ class CircleQueue<T>::iterator {
   }
 
   bool operator==(const iterator r) const noexcept {
-    return i == r.i && obj == r.obj;
+    assert(obj == r.obj);
+    return i == r.i;
   }
 
  private:
