@@ -79,7 +79,7 @@ struct ArgParser {
     std::pair {"version"sv, func(do_version)},
   };
 
-  static constexpr std::string_view short_opt_chars { "ABCQchl" };
+  static constexpr auto short_opt_chars { "ABCQchl"sv };
   static constexpr std::array<func, short_opt_chars.size()> short_opts {
     do_aflag,
     do_bflag,
