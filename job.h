@@ -38,9 +38,9 @@ class WorkQueue {
     else {
       front = std::move(job);
       back = front.get();
+      lk.unlock();
+      cv.notify_one();
     }
-    lk.unlock();
-    cv.notify_one();
   }
 
   bool runOne() {
@@ -72,7 +72,10 @@ class WorkQueue {
     auto ret = std::move(front);
     if (ret) {
       front = std::move(ret->next);
-      if (!front) {
+      if (front) {
+        lk.unlock();
+        cv.notify_one();
+      } else {
         back = nullptr;
       }
     }
